@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Mind Map App</title>
+  <style>
+    body { margin: 0; font-family: Arial; }
+    #toolbar {
+      padding: 10px;
+      background: #eee;
+      display: flex;
+      gap: 10px;
+    }
+    #canvas {
+      width: 100vw;
+      height: 90vh;
+      position: relative;
+      background: #fafafa;
+      overflow: hidden;
+    }
+    .node {
+      position: absolute;
+      padding: 10px;
+      border-radius: 12px;
+      cursor: move;
+      min-width: 80px;
+    }
+    input {
+      border: none;
+      background: transparent;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button onclick="addNode()">Add Node</button>
+  <button onclick="downloadMap()">Download</button>
+  <input type="file" onchange="uploadMap(event)">
+  <input type="color" id="colorPicker">
+  <button onclick="deleteNode()">Delete</button>
+</div>
+
+<div id="canvas"></div>
+<svg id="lines" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></svg>
+
+<script>
+let nodes = [];
+let edges = [];
+let selected = null;
+let connectFrom = null;
+let id = 0;
+
+const canvas = document.getElementById("canvas");
+const svg = document.getElementById("lines");
+
+function save() {
+  localStorage.setItem("mindmap", JSON.stringify({nodes, edges}));
+}
+
+function load() {
+  const data = JSON.parse(localStorage.getItem("mindmap"));
+  if (data) {
+    nodes = data.nodes || [];
+    edges = data.edges || [];
+    nodes.forEach(createNodeElement);
+    drawEdges();
+  }
+}
+
+function addNode() {
+  const node = {
+    id: id++,
+    x: 200,
+    y: 200,
+    text: "Idea",
+    color: "#90cdf4"
+  };
+  nodes.push(node);
+  createNodeElement(node);
+  save();
+}
+
+function createNodeElement(node) {
+  const div = document.createElement("div");
+  div.className = "node";
+  div.style.left = node.x + "px";
+  div.style.top = node.y + "px";
+  div.style.background = node.color;
+  div.dataset.id = node.id;
+
+  const input = document.createElement("input");
+  input.value = node.text;
+
+  input.oninput = () => {
+    node.text = input.value;
+    save();
+  };
+
+  div.onclick = (e) => {
+    e.stopPropagation();
+    selected = node.id;
+
+    if (!connectFrom) {
+      connectFrom = node.id;
+    } else {
+      if (connectFrom !== node.id) {
+        edges.push({from: connectFrom, to: node.id});
+        connectFrom = null;
+        drawEdges();
+        save();
+      }
+    }
+  };
+
+  let offsetX, offsetY;
+  div.onmousedown = (e) => {
+    offsetX = e.offsetX;
+    offsetY = e.offsetY;
+
+    function move(e) {
+      node.x = e.clientX - offsetX;
+      node.y = e.clientY - offsetY;
+      div.style.left = node.x + "px";
+      div.style.top = node.y + "px";
+      drawEdges();
+    }
+
+    function stop() {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", stop);
+      save();
+    }
+
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", stop);
+  };
+
+  div.appendChild(input);
+  canvas.appendChild(div);
+}
+
+function drawEdges() {
+  svg.innerHTML = "";
+  edges.forEach(edge => {
+    const from = nodes.find(n => n.id === edge.from);
+    const to = nodes.find(n => n.id === edge.to);
+    if (!from || !to) return;
+
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", from.x + 40);
+    line.setAttribute("y1", from.y + 20);
+    line.setAttribute("x2", to.x + 40);
+    line.setAttribute("y2", to.y + 20);
+    line.setAttribute("stroke", "black");
+
+    svg.appendChild(line);
+  });
+}
+
+function deleteNode() {
+  if (selected === null) return;
+
+  nodes = nodes.filter(n => n.id !== selected);
+  edges = edges.filter(e => e.from !== selected && e.to !== selected);
+
+  document.querySelectorAll(".node").forEach(el => {
+    if (Number(el.dataset.id) === selected) el.remove();
+  });
+
+  selected = null;
+  drawEdges();
+  save();
+}
+
+document.getElementById("colorPicker").onchange = (e) => {
+  const node = nodes.find(n => n.id === selected);
+  if (!node) return;
+  node.color = e.target.value;
+
+  document.querySelectorAll(".node").forEach(el => {
+    if (Number(el.dataset.id) === selected) {
+      el.style.background = node.color;
+    }
+  });
+
+  save();
+};
+
+function downloadMap() {
+  const blob = new Blob([JSON.stringify({nodes, edges})], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "mindmap.json";
+  a.click();
+}
+
+function uploadMap(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const data = JSON.parse(reader.result);
+    nodes = data.nodes || [];
+    edges = data.edges || [];
+
+    canvas.innerHTML = "";
+    nodes.forEach(createNodeElement);
+    drawEdges();
+    save();
+  };
+  reader.readAsText(file);
+}
+
+canvas.onclick = () => {
+  connectFrom = null;
+  selected = null;
+};
+
+load();
+</script>
+
+</body>
+</html>
