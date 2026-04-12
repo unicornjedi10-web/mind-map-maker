@@ -236,57 +236,6 @@ function createElement(node) {
 
   canvas.appendChild(div);
 }
-  };
-
-  const textColor = document.createElement("input");
-  textColor.type = "color";
-  textColor.value = node.textColor || "#000000";
-  textColor.oninput = () => {
-    node.textColor = textColor.value;
-    input.style.color = node.textColor;
-    saveState();
-  };
-const toggleBtn = document.createElement("button");
-toggleBtn.textContent = "🎨";
-
-toggleBtn.onclick = (e) => {
-  e.stopPropagation();
-  controls.style.display =
-    controls.style.display === "flex" ? "none" : "flex";
-};
-    
-controls.className = "controls";
-  input.value = node.text;
-  input.style.color = node.textColor || node.color;
-  input.style.fontSize = (node.size || 14) + "px";
-
-  input.oninput = () => { node.text = input.value; saveState(); };
-  input.style.resize = "none";
-input.style.overflow = "hidden";
-
-input.addEventListener("input", () => {
-  input.style.height = "auto";
-  input.style.height = input.scrollHeight + "px";
-  input.style.minHeight = "20px";
-});
-
-  const controls = document.createElement("div");
-  controls.className = "controls";
-
-  if (node.type === "node") {
-    const color = document.createElement("input");
-    color.type = "color";
-    color.value = node.color;
-    color.oninput = () => { node.color = color.value; div.style.background = node.color; saveState(); };
-
-    const textColor = document.createElement("input");
-    textColor.type = "color";
-    textColor.value = node.textColor;
-    textColor.oninput = () => { node.textColor = textColor.value; input.style.color = node.textColor; saveState(); };
-
-    controls.appendChild(color);
-    controls.appendChild(textColor);
-  }
 
   div.onclick = (e) => {
     e.stopPropagation();
