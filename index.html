@@ -38,13 +38,6 @@
       border: 2px solid #000;
     }
 
-    #selectionBox {
-      position: absolute;
-      border: 1px dashed #333;
-      background: rgba(0,0,0,0.05);
-      display: none;
-    }
-
     textarea {
       border: none;
       background: transparent;
@@ -69,8 +62,24 @@
       z-index: 10;
     }
 
+    #selectionBox {
+      position: absolute;
+      border: 1px dashed #333;
+      background: rgba(0,0,0,0.05);
+      display: none;
+    }
+
     button { cursor: pointer; }
     input { border: none; background: transparent; }
+
+    svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
   </style>
 </head>
 
@@ -91,7 +100,7 @@
 
 <div id="canvas"></div>
 <div id="selectionBox"></div>
-<svg id="lines" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></svg>
+<svg id="lines"></svg>
 
 <script>
 let nodes = [];
@@ -107,7 +116,7 @@ const canvas = document.getElementById("canvas");
 const svg = document.getElementById("lines");
 const selectionBox = document.getElementById("selectionBox");
 
-/* ---------------- STATE ---------------- */
+/* ---------------- SAVE ---------------- */
 
 function saveState() {
   history.push(JSON.stringify({ nodes, edges }));
@@ -132,7 +141,7 @@ function loadMap(event) {
   reader.readAsText(file);
 }
 
-/* ---------------- UNDO/REDO ---------------- */
+/* ---------------- UNDO REDO ---------------- */
 
 function undo() {
   if (!history.length) return;
@@ -152,7 +161,7 @@ function redo() {
   reload();
 }
 
-/* ---------------- RENDER ---------------- */
+/* ---------------- RELOAD ---------------- */
 
 function reload() {
   canvas.innerHTML = "";
@@ -204,15 +213,14 @@ function createElement(node) {
 
   const input = document.createElement("textarea");
   input.value = node.text;
-  input.style.fontSize = (node.size || 14) + "px";
   input.style.color = node.textColor || "#000";
+  input.style.fontSize = (node.size || 14) + "px";
 
   input.oninput = () => {
     node.text = input.value;
     saveState();
   };
 
-  /* autosize */
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = input.scrollHeight + "px";
@@ -220,17 +228,6 @@ function createElement(node) {
 
   /* controls */
   const controls = document.createElement("div");
-  const lockBtn = document.createElement("button");
-lockBtn.textContent = node.locked ? "🔒 Locked" : "🔓 Unlock";
-
-lockBtn.onclick = (e) => {
-  e.stopPropagation();
-  node.locked = !node.locked;
-  lockBtn.textContent = node.locked ? "🔒 Locked" : "🔓 Unlock";
-  saveState();
-};
-
-controls.appendChild(lockBtn);
   controls.className = "controls";
 
   if (node.type === "node") {
@@ -267,15 +264,15 @@ controls.appendChild(lockBtn);
       controls.style.display === "flex" ? "none" : "flex";
   };
 
+  /* SELECT */
   div.onclick = (e) => {
     e.stopPropagation();
     toggleSelect(node.id, div);
   };
 
-div.onmousedown = (e) => {
-  if (node.locked) return; // ❌ prevents movement
-
-  draggingNode = node;
+  /* DRAG */
+  div.onmousedown = (e) => {
+    draggingNode = node;
 
     function move(e) {
       node.x += e.movementX;
@@ -288,6 +285,7 @@ div.onmousedown = (e) => {
     function stop() {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", stop);
+      connectOnDrop();
       saveState();
     }
 
@@ -298,6 +296,7 @@ div.onmousedown = (e) => {
   div.appendChild(input);
   div.appendChild(toggleBtn);
   div.appendChild(controls);
+
   canvas.appendChild(div);
 }
 
@@ -313,7 +312,22 @@ function toggleSelect(id, el) {
   }
 }
 
-/* ---------------- EDGES ---------------- */
+/* ---------------- CONNECTIONS ---------------- */
+
+function connectOnDrop() {
+  const target = nodes.find(n =>
+    Math.abs(n.x - draggingNode.x) < 80 &&
+    Math.abs(n.y - draggingNode.y) < 80 &&
+    n.id !== draggingNode.id
+  );
+
+  if (target) {
+    edges.push({ from: draggingNode.id, to: target.id });
+    drawEdges();
+  }
+}
+
+/* ---------------- DRAW LINES ---------------- */
 
 function drawEdges() {
   svg.innerHTML = "";
@@ -332,6 +346,12 @@ function drawEdges() {
     line.setAttribute("stroke", "black");
     line.setAttribute("stroke-width", "2");
 
+    line.onclick = () => {
+      edges = edges.filter(e => e !== edge);
+      drawEdges();
+      saveState();
+    };
+
     svg.appendChild(line);
   });
 }
@@ -340,7 +360,10 @@ function drawEdges() {
 
 function deleteSelected() {
   nodes = nodes.filter(n => !selectedNodes.includes(n.id));
-  edges = edges.filter(e => !selectedNodes.includes(e.from) && !selectedNodes.includes(e.to));
+  edges = edges.filter(e =>
+    !selectedNodes.includes(e.from) &&
+    !selectedNodes.includes(e.to)
+  );
   selectedNodes = [];
   reload();
 }
@@ -357,7 +380,10 @@ function clearAll() {
 
 function downloadMap() {
   const name = document.getElementById("filename").value || "mindmap";
-  const blob = new Blob([JSON.stringify({ nodes, edges })], { type: "application/json" });
+  const blob = new Blob([JSON.stringify({ nodes, edges })], {
+    type: "application/json"
+  });
+
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = name + ".json";
@@ -368,7 +394,8 @@ function downloadMap() {
 
 canvas.onclick = () => {
   selectedNodes = [];
-  document.querySelectorAll(".node, .textNode").forEach(n => n.classList.remove("selected"));
+  document.querySelectorAll(".node, .textNode")
+    .forEach(n => n.classList.remove("selected"));
 };
 
 </script>
