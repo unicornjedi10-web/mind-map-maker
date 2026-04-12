@@ -220,6 +220,17 @@ function createElement(node) {
 
   /* controls */
   const controls = document.createElement("div");
+  const lockBtn = document.createElement("button");
+lockBtn.textContent = node.locked ? "🔒 Locked" : "🔓 Unlock";
+
+lockBtn.onclick = (e) => {
+  e.stopPropagation();
+  node.locked = !node.locked;
+  lockBtn.textContent = node.locked ? "🔒 Locked" : "🔓 Unlock";
+  saveState();
+};
+
+controls.appendChild(lockBtn);
   controls.className = "controls";
 
   if (node.type === "node") {
@@ -261,8 +272,10 @@ function createElement(node) {
     toggleSelect(node.id, div);
   };
 
-  div.onmousedown = (e) => {
-    draggingNode = node;
+div.onmousedown = (e) => {
+  if (node.locked) return; // ❌ prevents movement
+
+  draggingNode = node;
 
     function move(e) {
       node.x += e.movementX;
