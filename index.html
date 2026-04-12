@@ -4,35 +4,12 @@
   <title>Mind Map App</title>
   <style>
     body { margin: 0; font-family: Arial; }
-    #toolbar {
-      padding: 10px;
-      background: #eee;
-      display: flex;
-      gap: 10px;
-    }
-    #canvas {
-      width: 100vw;
-      height: 90vh;
-      position: relative;
-      background: #fafafa;
-      overflow: hidden;
-    }
-    .node {
-      position: absolute;
-      padding: 10px;
-      border-radius: 12px;
-      cursor: move;
-      min-width: 100px;
-      border: 2px solid transparent;
-    }
-    .selected {
-      border: 2px solid #000;
-    }
-    .controls {
-      display: flex;
-      gap: 5px;
-      margin-top: 5px;
-    }
+    #toolbar { padding: 10px; background: #eee; display: flex; gap: 10px; }
+    #canvas { width: 100vw; height: 90vh; position: relative; background: #fafafa; overflow: hidden; }
+    .node { position: absolute; padding: 10px; border-radius: 12px; cursor: move; min-width: 100px; border: 2px solid transparent; }
+    .selected { border: 2px solid #000; }
+    .controls { display: none; flex-direction: column; gap: 5px; margin-top: 5px; }
+    .node.active .controls { display: flex; }
     input { border: none; background: transparent; width: 100%; }
   </style>
 </head>
@@ -44,6 +21,7 @@
   <button onclick="ungroupNodes()">Ungroup</button>
   <button onclick="deleteSelected()">Delete Selected</button>
   <button onclick="downloadMap()">Download</button>
+  <input id="filename" placeholder="file name" />
   <input type="file" onchange="uploadMap(event)">
 </div>
 
@@ -55,6 +33,7 @@ let nodes = [];
 let edges = [];
 let selectedNodes = [];
 let id = 0;
+let draggingNode = null;
 
 const canvas = document.getElementById("canvas");
 const svg = document.getElementById("lines");
@@ -74,7 +53,7 @@ function load() {
 }
 
 function addNode() {
-  const node = { id: id++, x: 200, y: 200, text: "Idea", color: "#90cdf4", group: null };
+  const node = { id: id++, x: 200, y: 200, text: "Idea", color: "#90cdf4", textColor: "#000", group: null };
   nodes.push(node);
   createNodeElement(node);
   save();
@@ -90,9 +69,9 @@ function createNodeElement(node) {
 
   const input = document.createElement("input");
   input.value = node.text;
+  input.style.color = node.textColor;
   input.oninput = () => { node.text = input.value; save(); };
 
-  // Controls inside node
   const controls = document.createElement("div");
   controls.className = "controls";
 
@@ -105,56 +84,52 @@ function createNodeElement(node) {
     save();
   };
 
+  const textColor = document.createElement("input");
+  textColor.type = "color";
+  textColor.value = node.textColor;
+  textColor.oninput = () => {
+    node.textColor = textColor.value;
+    input.style.color = node.textColor;
+    save();
+  };
+
   const del = document.createElement("button");
   del.textContent = "X";
-  del.onclick = (e) => {
-    e.stopPropagation();
-    deleteNode(node.id);
-  };
-
-  const connect = document.createElement("button");
-  connect.textContent = "↔";
-  connect.onclick = (e) => {
-    e.stopPropagation();
-    connectMode(node.id);
-  };
+  del.onclick = (e) => { e.stopPropagation(); deleteNode(node.id); };
 
   controls.appendChild(color);
-  controls.appendChild(connect);
+  controls.appendChild(textColor);
   controls.appendChild(del);
 
   div.onclick = (e) => {
     e.stopPropagation();
+    div.classList.toggle("active");
     toggleSelect(node.id, div);
   };
 
-  let offsetX, offsetY;
   div.onmousedown = (e) => {
-    offsetX = e.offsetX;
-    offsetY = e.offsetY;
+    draggingNode = node;
+    let offsetX = e.offsetX;
+    let offsetY = e.offsetY;
 
     function move(e) {
-      const dx = e.clientX - offsetX;
-      const dy = e.clientY - offsetY;
-
-      const movingNodes = selectedNodes.includes(node.id)
-        ? nodes.filter(n => selectedNodes.includes(n.id))
-        : [node];
-
-      movingNodes.forEach(n => {
+      const moving = selectedNodes.includes(node.id) ? nodes.filter(n => selectedNodes.includes(n.id)) : [node];
+      moving.forEach(n => {
         n.x += e.movementX;
         n.y += e.movementY;
         const el = document.querySelector(`[data-id='${n.id}']`);
         el.style.left = n.x + "px";
         el.style.top = n.y + "px";
       });
-
       drawEdges();
+      drawPreviewLine(e);
     }
 
-    function stop() {
+    function stop(e) {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", stop);
+      tryConnect(e);
+      clearPreview();
       save();
     }
 
@@ -165,20 +140,6 @@ function createNodeElement(node) {
   div.appendChild(input);
   div.appendChild(controls);
   canvas.appendChild(div);
-}
-
-let connectFrom = null;
-function connectMode(id) {
-  if (!connectFrom) {
-    connectFrom = id;
-  } else {
-    if (connectFrom !== id) {
-      edges.push({from: connectFrom, to: id});
-      connectFrom = null;
-      drawEdges();
-      save();
-    }
-  }
 }
 
 function toggleSelect(id, el) {
@@ -205,16 +166,45 @@ function deleteSelected() {
 }
 
 function groupNodes() {
-  const groupId = Date.now();
-  nodes.forEach(n => {
-    if (selectedNodes.includes(n.id)) n.group = groupId;
-  });
+  const gid = Date.now();
+  nodes.forEach(n => { if (selectedNodes.includes(n.id)) n.group = gid; });
 }
 
 function ungroupNodes() {
-  nodes.forEach(n => {
-    if (selectedNodes.includes(n.id)) n.group = null;
+  nodes.forEach(n => { if (selectedNodes.includes(n.id)) n.group = null; });
+}
+
+function tryConnect(e) {
+  const target = nodes.find(n => {
+    return Math.abs(n.x - draggingNode.x) < 80 && Math.abs(n.y - draggingNode.y) < 80 && n.id !== draggingNode.id;
   });
+
+  if (target) {
+    edges.push({from: draggingNode.id, to: target.id, color: "black"});
+    draggingNode.group = target.group || Date.now();
+    target.group = draggingNode.group;
+    drawEdges();
+  }
+}
+
+let previewLine = null;
+function drawPreviewLine(e) {
+  clearPreview();
+  if (!draggingNode) return;
+
+  previewLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  previewLine.setAttribute("x1", draggingNode.x + 50);
+  previewLine.setAttribute("y1", draggingNode.y + 30);
+  previewLine.setAttribute("x2", e.clientX);
+  previewLine.setAttribute("y2", e.clientY);
+  previewLine.setAttribute("stroke", "gray");
+  previewLine.setAttribute("stroke-dasharray", "5,5");
+
+  svg.appendChild(previewLine);
+}
+
+function clearPreview() {
+  if (previewLine) previewLine.remove();
 }
 
 function drawEdges() {
@@ -229,17 +219,18 @@ function drawEdges() {
     line.setAttribute("y1", from.y + 30);
     line.setAttribute("x2", to.x + 50);
     line.setAttribute("y2", to.y + 30);
-    line.setAttribute("stroke", "black");
+    line.setAttribute("stroke", edge.color || "black");
 
     svg.appendChild(line);
   });
 }
 
 function downloadMap() {
+  const name = document.getElementById("filename").value || "mindmap";
   const blob = new Blob([JSON.stringify({nodes, edges})], {type:"application/json"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "mindmap.json";
+  a.download = name + ".json";
   a.click();
 }
 
@@ -263,7 +254,10 @@ function uploadMap(e) {
 
 canvas.onclick = () => {
   selectedNodes = [];
-  document.querySelectorAll(".node").forEach(n => n.classList.remove("selected"));
+  document.querySelectorAll(".node").forEach(n => {
+    n.classList.remove("selected");
+    n.classList.remove("active");
+  });
 };
 
 load();
