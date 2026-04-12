@@ -10,8 +10,13 @@
     .selected { border: 2px solid #000; }
     .controls { display: none; flex-direction: column; gap: 5px; margin-top: 5px; }
     .node.active .controls { display: flex; }
+    #selectionBox {
+      position: absolute;
+      border: 1px dashed #333;
+      background: rgba(0,0,0,0.05);
+      display: none;
+    }
     input { border: none; background: transparent; width: 100%; }
-    button { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -29,6 +34,7 @@
 </div>
 
 <div id="canvas"></div>
+<div id="selectionBox"></div>
 <svg id="lines" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></svg>
 
 <script>
@@ -42,6 +48,7 @@ let draggingNode = null;
 
 const canvas = document.getElementById("canvas");
 const svg = document.getElementById("lines");
+const selectionBox = document.getElementById("selectionBox");
 
 function saveState() {
   history.push(JSON.stringify({nodes, edges}));
@@ -94,7 +101,7 @@ function addChildNode() {
   const parent = nodes.find(n => n.id === selectedNodes[0]);
   const node = { id: id++, x: parent.x + 120, y: parent.y + 80, text: "Child", color: "#a7f3d0", textColor: "#000" };
   nodes.push(node);
-  edges.push({from: parent.id, to: node.id, color: "black"});
+  edges.push({from: parent.id, to: node.id, color: "black", type: "child"});
   createNodeElement(node);
   drawEdges();
   saveState();
@@ -116,32 +123,15 @@ function createNodeElement(node) {
   const controls = document.createElement("div");
   controls.className = "controls";
 
-  const color = document.createElement("input");
-  color.type = "color";
-  color.value = node.color;
-  color.oninput = () => { node.color = color.value; div.style.background = node.color; saveState(); };
-
-  const textColor = document.createElement("input");
-  textColor.type = "color";
-  textColor.value = node.textColor;
-  textColor.oninput = () => { node.textColor = textColor.value; input.style.color = node.textColor; saveState(); };
-
-  const lineColor = document.createElement("input");
-  lineColor.type = "color";
-  lineColor.value = "#000000";
-
   const delLine = document.createElement("button");
-  delLine.textContent = "Del Line";
+  delLine.textContent = "Del Lines";
   delLine.onclick = (e) => {
     e.stopPropagation();
-    edges = edges.filter(ed => ed.from !== node.id && ed.to !== node.id);
+    edges = edges.filter(ed => ed.from !== node.id);
     drawEdges();
     saveState();
   };
 
-  controls.appendChild(color);
-  controls.appendChild(textColor);
-  controls.appendChild(lineColor);
   controls.appendChild(delLine);
 
   div.onclick = (e) => {
@@ -154,19 +144,21 @@ function createNodeElement(node) {
     draggingNode = node;
 
     function move(e) {
-      node.x += e.movementX;
-      node.y += e.movementY;
-      div.style.left = node.x + "px";
-      div.style.top = node.y + "px";
+      const group = getConnected(node.id);
+      group.forEach(n => {
+        n.x += e.movementX;
+        n.y += e.movementY;
+        const el = document.querySelector(`[data-id='${n.id}']`);
+        el.style.left = n.x + "px";
+        el.style.top = n.y + "px";
+      });
       drawEdges();
-      previewLine(e);
     }
 
     function stop(e) {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", stop);
       connectOnDrop(e);
-      clearPreview();
       saveState();
     }
 
@@ -177,6 +169,19 @@ function createNodeElement(node) {
   div.appendChild(input);
   div.appendChild(controls);
   canvas.appendChild(div);
+}
+
+function getConnected(startId) {
+  const visited = new Set();
+  function dfs(id) {
+    visited.add(id);
+    edges.forEach(e => {
+      if (e.from === id && !visited.has(e.to)) dfs(e.to);
+      if (e.to === id && !visited.has(e.from)) dfs(e.from);
+    });
+  }
+  dfs(startId);
+  return nodes.filter(n => visited.has(n.id));
 }
 
 function toggleSelect(id, el) {
@@ -192,26 +197,9 @@ function toggleSelect(id, el) {
 function connectOnDrop(e) {
   const target = nodes.find(n => Math.abs(n.x - draggingNode.x) < 80 && Math.abs(n.y - draggingNode.y) < 80 && n.id !== draggingNode.id);
   if (target) {
-    edges.push({from: draggingNode.id, to: target.id, color: "black"});
+    edges.push({from: draggingNode.id, to: target.id, color: "black", type: "normal"});
     drawEdges();
   }
-}
-
-let preview = null;
-function previewLine(e) {
-  clearPreview();
-  preview = document.createElementNS("http://www.w3.org/2000/svg", "line");
-  preview.setAttribute("x1", draggingNode.x + 50);
-  preview.setAttribute("y1", draggingNode.y + 30);
-  preview.setAttribute("x2", e.clientX);
-  preview.setAttribute("y2", e.clientY);
-  preview.setAttribute("stroke", "gray");
-  preview.setAttribute("stroke-dasharray", "5,5");
-  svg.appendChild(preview);
-}
-
-function clearPreview() {
-  if (preview) preview.remove();
 }
 
 function drawEdges() {
@@ -221,11 +209,14 @@ function drawEdges() {
     const to = nodes.find(n => n.id === edge.to);
     if (!from || !to) return;
 
+    const yOffsetFrom = edge.type === "child" ? 60 : 30;
+    const yOffsetTo = edge.type === "child" ? 0 : 30;
+
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", from.x + 50);
-    line.setAttribute("y1", from.y + 30);
+    line.setAttribute("y1", from.y + yOffsetFrom);
     line.setAttribute("x2", to.x + 50);
-    line.setAttribute("y2", to.y + 30);
+    line.setAttribute("y2", to.y + yOffsetTo);
     line.setAttribute("stroke", edge.color || "black");
     line.setAttribute("stroke-width", "2");
 
@@ -279,13 +270,50 @@ function uploadMap(e) {
   reader.readAsText(file);
 }
 
-canvas.onclick = () => {
-  selectedNodes = [];
-  document.querySelectorAll(".node").forEach(n => {
-    n.classList.remove("selected");
-    n.classList.remove("active");
-  });
-};
+// Selection box (desktop style)
+let startX, startY;
+canvas.addEventListener("mousedown", (e) => {
+  if (e.target !== canvas) return;
+
+  startX = e.clientX;
+  startY = e.clientY;
+
+  selectionBox.style.left = startX + "px";
+  selectionBox.style.top = startY + "px";
+  selectionBox.style.width = 0;
+  selectionBox.style.height = 0;
+  selectionBox.style.display = "block";
+
+  function move(e) {
+    const w = e.clientX - startX;
+    const h = e.clientY - startY;
+
+    selectionBox.style.width = Math.abs(w) + "px";
+    selectionBox.style.height = Math.abs(h) + "px";
+    selectionBox.style.left = (w < 0 ? e.clientX : startX) + "px";
+    selectionBox.style.top = (h < 0 ? e.clientY : startY) + "px";
+
+    selectedNodes = [];
+    document.querySelectorAll(".node").forEach(el => {
+      const rect = el.getBoundingClientRect();
+      if (rect.left > selectionBox.offsetLeft && rect.top > selectionBox.offsetTop && rect.right < selectionBox.offsetLeft + selectionBox.offsetWidth && rect.bottom < selectionBox.offsetTop + selectionBox.offsetHeight) {
+        el.classList.add("selected");
+        selectedNodes.push(Number(el.dataset.id));
+      } else {
+        el.classList.remove("selected");
+      }
+    });
+  }
+
+  function stop() {
+    selectionBox.style.display = "none";
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", stop);
+  }
+
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", stop);
+});
 
 load();
 </script>
