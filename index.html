@@ -10,12 +10,7 @@
     .selected { border: 2px solid #000; }
     .controls { display: none; flex-direction: column; gap: 5px; margin-top: 5px; }
     .node.active .controls { display: flex; }
-    #selectionBox {
-      position: absolute;
-      border: 1px dashed #333;
-      background: rgba(0,0,0,0.05);
-      display: none;
-    }
+    #selectionBox { position: absolute; border: 1px dashed #333; background: rgba(0,0,0,0.05); display: none; }
     input { border: none; background: transparent; width: 100%; }
   </style>
 </head>
@@ -35,7 +30,7 @@
 
 <div id="canvas"></div>
 <div id="selectionBox"></div>
-<svg id="lines" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></svg>
+<svg id="lines" style="position:absolute; top:0; left:0; width:100%; height:100%;"></svg>
 
 <script>
 let nodes = [];
@@ -45,6 +40,7 @@ let history = [];
 let future = [];
 let id = 0;
 let draggingNode = null;
+let draggingGroup = null;
 
 const canvas = document.getElementById("canvas");
 const svg = document.getElementById("lines");
@@ -123,6 +119,16 @@ function createNodeElement(node) {
   const controls = document.createElement("div");
   controls.className = "controls";
 
+  const color = document.createElement("input");
+  color.type = "color";
+  color.value = node.color;
+  color.oninput = () => { node.color = color.value; div.style.background = node.color; saveState(); };
+
+  const textColor = document.createElement("input");
+  textColor.type = "color";
+  textColor.value = node.textColor;
+  textColor.oninput = () => { node.textColor = textColor.value; input.style.color = node.textColor; saveState(); };
+
   const delLine = document.createElement("button");
   delLine.textContent = "Del Lines";
   delLine.onclick = (e) => {
@@ -132,6 +138,8 @@ function createNodeElement(node) {
     saveState();
   };
 
+  controls.appendChild(color);
+  controls.appendChild(textColor);
   controls.appendChild(delLine);
 
   div.onclick = (e) => {
@@ -144,21 +152,19 @@ function createNodeElement(node) {
     draggingNode = node;
 
     function move(e) {
-      const group = getConnected(node.id);
-      group.forEach(n => {
-        n.x += e.movementX;
-        n.y += e.movementY;
-        const el = document.querySelector(`[data-id='${n.id}']`);
-        el.style.left = n.x + "px";
-        el.style.top = n.y + "px";
-      });
+      node.x += e.movementX;
+      node.y += e.movementY;
+      div.style.left = node.x + "px";
+      div.style.top = node.y + "px";
       drawEdges();
+      previewLine(e);
     }
 
     function stop(e) {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", stop);
       connectOnDrop(e);
+      clearPreview();
       saveState();
     }
 
@@ -202,6 +208,23 @@ function connectOnDrop(e) {
   }
 }
 
+let preview = null;
+function previewLine(e) {
+  clearPreview();
+  preview = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  preview.setAttribute("x1", draggingNode.x + 50);
+  preview.setAttribute("y1", draggingNode.y + 30);
+  preview.setAttribute("x2", e.clientX);
+  preview.setAttribute("y2", e.clientY);
+  preview.setAttribute("stroke", "gray");
+  preview.setAttribute("stroke-dasharray", "5,5");
+  svg.appendChild(preview);
+}
+
+function clearPreview() {
+  if (preview) preview.remove();
+}
+
 function drawEdges() {
   svg.innerHTML = "";
   edges.forEach(edge => {
@@ -218,8 +241,36 @@ function drawEdges() {
     line.setAttribute("x2", to.x + 50);
     line.setAttribute("y2", to.y + yOffsetTo);
     line.setAttribute("stroke", edge.color || "black");
-    line.setAttribute("stroke-width", "2");
+    line.setAttribute("stroke-width", "3");
+    line.style.cursor = "grab";
 
+    // Drag line to move entire connected group
+    line.onmousedown = (e) => {
+      e.stopPropagation();
+      draggingGroup = getConnected(edge.from);
+
+      function move(e) {
+        draggingGroup.forEach(n => {
+          n.x += e.movementX;
+          n.y += e.movementY;
+          const el = document.querySelector(`[data-id='${n.id}']`);
+          el.style.left = n.x + "px";
+          el.style.top = n.y + "px";
+        });
+        drawEdges();
+      }
+
+      function stop() {
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", stop);
+        saveState();
+      }
+
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", stop);
+    };
+
+    // Click to delete
     line.onclick = () => {
       edges = edges.filter(e => e !== edge);
       drawEdges();
@@ -270,7 +321,7 @@ function uploadMap(e) {
   reader.readAsText(file);
 }
 
-// Selection box (desktop style)
+// Selection box
 let startX, startY;
 canvas.addEventListener("mousedown", (e) => {
   if (e.target !== canvas) return;
