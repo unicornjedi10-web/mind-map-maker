@@ -2,37 +2,78 @@
 <html>
 <head>
   <title>Mind Map App</title>
+
   <style>
-    .controls {
-  display: none;
-  flex-direction: column;
-  gap: 5px;
-  margin-top: 5px;
-  background: white;
-  padding: 5px;
-  border-radius: 6px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-  position: absolute;
-  z-index: 10;
-}
-    textarea {
-  border: none;
-  background: transparent;
-  outline: none;
-  width: 100%;
-  font-family: inherit;
-}
     body { margin: 0; font-family: Arial; }
-    #toolbar { padding: 10px; background: #eee; display: flex; gap: 10px; }
-    #canvas { width: 100vw; height: 90vh; position: relative; overflow: hidden; }
-    .node { position: absolute; padding: 10px; border-radius: 12px; cursor: move; min-width: 100px; border: 2px solid transparent; }
-    .textNode { position: absolute; cursor: move; }
-    .selected { border: 2px solid #000; }
-    #selectionBox { position: absolute; border: 1px dashed #333; background: rgba(0,0,0,0.05); display: none; }
-    input { border: none; background: transparent; }
+
+    #toolbar {
+      padding: 10px;
+      background: #eee;
+      display: flex;
+      gap: 10px;
+    }
+
+    #canvas {
+      width: 100vw;
+      height: 90vh;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .node {
+      position: absolute;
+      padding: 10px;
+      border-radius: 12px;
+      cursor: move;
+      min-width: 100px;
+      border: 2px solid transparent;
+    }
+
+    .textNode {
+      position: absolute;
+      cursor: move;
+    }
+
+    .selected {
+      border: 2px solid #000;
+    }
+
+    #selectionBox {
+      position: absolute;
+      border: 1px dashed #333;
+      background: rgba(0,0,0,0.05);
+      display: none;
+    }
+
+    textarea {
+      border: none;
+      background: transparent;
+      outline: none;
+      width: 100%;
+      font-family: inherit;
+      resize: none;
+      overflow: hidden;
+      min-height: 20px;
+    }
+
+    .controls {
+      display: none;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 5px;
+      background: white;
+      padding: 5px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      position: absolute;
+      z-index: 10;
+    }
+
     button { cursor: pointer; }
+    input { border: none; background: transparent; }
   </style>
 </head>
+
 <body>
 
 <div id="toolbar">
@@ -43,10 +84,9 @@
   <button onclick="undo()">Undo</button>
   <button onclick="redo()">Redo</button>
   <button onclick="downloadMap()">Download</button>
+
   <input id="filename" placeholder="file name" />
   <input type="file" accept=".json" onchange="loadMap(event)">
-  <input type="color" onchange="document.body.style.background=this.value">
-  <input type="color" onchange="toolbar.style.background=this.value">
 </div>
 
 <div id="canvas"></div>
@@ -66,40 +106,37 @@ let draggingGroup = null;
 const canvas = document.getElementById("canvas");
 const svg = document.getElementById("lines");
 const selectionBox = document.getElementById("selectionBox");
-const toolbar = document.getElementById("toolbar");
+
+/* ---------------- STATE ---------------- */
 
 function saveState() {
-  history.push(JSON.stringify({nodes, edges}));
+  history.push(JSON.stringify({ nodes, edges }));
   future = [];
 }
+
+/* ---------------- LOAD ---------------- */
+
 function loadMap(event) {
   const file = event.target.files[0];
   if (!file) return;
 
   const reader = new FileReader();
-
   reader.onload = (e) => {
-    try {
-      const data = JSON.parse(e.target.result);
-
-      nodes = data.nodes || [];
-      edges = data.edges || [];
-
-      selectedNodes = [];
-
-      reload();   // redraw everything
-      saveState(); // keep undo working
-    } catch (err) {
-      alert("Invalid file — not a valid mind map JSON");
-    }
+    const data = JSON.parse(e.target.result);
+    nodes = data.nodes || [];
+    edges = data.edges || [];
+    selectedNodes = [];
+    reload();
+    saveState();
   };
-
   reader.readAsText(file);
 }
 
+/* ---------------- UNDO/REDO ---------------- */
+
 function undo() {
   if (!history.length) return;
-  future.push(JSON.stringify({nodes, edges}));
+  future.push(JSON.stringify({ nodes, edges }));
   const prev = JSON.parse(history.pop());
   nodes = prev.nodes;
   edges = prev.edges;
@@ -108,12 +145,14 @@ function undo() {
 
 function redo() {
   if (!future.length) return;
-  history.push(JSON.stringify({nodes, edges}));
+  history.push(JSON.stringify({ nodes, edges }));
   const next = JSON.parse(future.pop());
   nodes = next.nodes;
   edges = next.edges;
   reload();
 }
+
+/* ---------------- RENDER ---------------- */
 
 function reload() {
   canvas.innerHTML = "";
@@ -121,21 +160,40 @@ function reload() {
   drawEdges();
 }
 
+/* ---------------- ADD ---------------- */
+
 function addNode() {
-  const node = { id: id++, x: 200, y: 200, text: "Idea", color: "#90cdf4", textColor: "#000", type: "node" };
+  const node = {
+    id: id++,
+    x: 200,
+    y: 200,
+    text: "Idea",
+    color: "#90cdf4",
+    textColor: "#000",
+    type: "node"
+  };
   nodes.push(node);
   createElement(node);
   saveState();
 }
 
 function addText() {
-  const node = { id: id++, x: 200, y: 200, text: "Text", color: "#000", size: 16, type: "text" };
+  const node = {
+    id: id++,
+    x: 200,
+    y: 200,
+    text: "Text",
+    color: "#000",
+    size: 16,
+    type: "text"
+  };
   nodes.push(node);
   createElement(node);
   saveState();
 }
 
-function createElement(node) {
+/* ---------------- CREATE NODE ---------------- */
+
 function createElement(node) {
   const div = document.createElement("div");
   div.className = node.type === "text" ? "textNode" : "node";
@@ -144,24 +202,23 @@ function createElement(node) {
   if (node.type === "node") div.style.background = node.color;
   div.dataset.id = node.id;
 
-  // TEXT INPUT
   const input = document.createElement("textarea");
   input.value = node.text;
-  input.style.color = node.textColor || node.color;
   input.style.fontSize = (node.size || 14) + "px";
+  input.style.color = node.textColor || "#000";
 
-  input.oninput = () => { node.text = input.value; saveState(); };
+  input.oninput = () => {
+    node.text = input.value;
+    saveState();
+  };
 
-  input.style.resize = "none";
-  input.style.overflow = "hidden";
-  input.style.minHeight = "20px";
-
+  /* autosize */
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = input.scrollHeight + "px";
   });
 
-  // CONTROLS (DROPDOWN)
+  /* controls */
   const controls = document.createElement("div");
   controls.className = "controls";
 
@@ -169,6 +226,7 @@ function createElement(node) {
     const color = document.createElement("input");
     color.type = "color";
     color.value = node.color;
+
     color.oninput = () => {
       node.color = color.value;
       div.style.background = node.color;
@@ -177,7 +235,8 @@ function createElement(node) {
 
     const textColor = document.createElement("input");
     textColor.type = "color";
-    textColor.value = node.textColor || "#000000";
+    textColor.value = node.textColor || "#000";
+
     textColor.oninput = () => {
       node.textColor = textColor.value;
       input.style.color = node.textColor;
@@ -188,7 +247,6 @@ function createElement(node) {
     controls.appendChild(textColor);
   }
 
-  // TOGGLE BUTTON
   const toggleBtn = document.createElement("button");
   toggleBtn.textContent = "🎨";
 
@@ -198,45 +256,6 @@ function createElement(node) {
       controls.style.display === "flex" ? "none" : "flex";
   };
 
-  // SELECT
-  div.onclick = (e) => {
-    e.stopPropagation();
-    toggleSelect(node.id, div);
-  };
-
-  // DRAG
-  div.onmousedown = (e) => {
-    draggingNode = node;
-
-    function move(e) {
-      node.x += e.movementX;
-      node.y += e.movementY;
-      div.style.left = node.x + "px";
-      div.style.top = node.y + "px";
-      drawEdges();
-      previewLine(e);
-    }
-
-    function stop(e) {
-      document.removeEventListener("mousemove", move);
-      document.removeEventListener("mouseup", stop);
-      connectOnDrop(e);
-      clearPreview();
-      saveState();
-    }
-
-    document.addEventListener("mousemove", move);
-    document.addEventListener("mouseup", stop);
-  };
-
-  // APPEND EVERYTHING
-  div.appendChild(input);
-  div.appendChild(toggleBtn);
-  div.appendChild(controls);
-
-  canvas.appendChild(div);
-}
-
   div.onclick = (e) => {
     e.stopPropagation();
     toggleSelect(node.id, div);
@@ -251,14 +270,11 @@ function createElement(node) {
       div.style.left = node.x + "px";
       div.style.top = node.y + "px";
       drawEdges();
-      previewLine(e);
     }
 
-    function stop(e) {
+    function stop() {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", stop);
-      connectOnDrop(e);
-      clearPreview();
       saveState();
     }
 
@@ -271,6 +287,8 @@ function createElement(node) {
   div.appendChild(controls);
   canvas.appendChild(div);
 }
+
+/* ---------------- SELECT ---------------- */
 
 function toggleSelect(id, el) {
   if (selectedNodes.includes(id)) {
@@ -282,43 +300,7 @@ function toggleSelect(id, el) {
   }
 }
 
-function connectOnDrop() {
-  const target = nodes.find(n => Math.abs(n.x - draggingNode.x) < 80 && Math.abs(n.y - draggingNode.y) < 80 && n.id !== draggingNode.id);
-  if (target) {
-    edges.push({from: draggingNode.id, to: target.id});
-    drawEdges();
-  }
-}
-
-let preview = null;
-function previewLine(e) {
-  clearPreview();
-  preview = document.createElementNS("http://www.w3.org/2000/svg", "line");
-  preview.setAttribute("x1", draggingNode.x + 50);
-  preview.setAttribute("y1", draggingNode.y + 30);
-  preview.setAttribute("x2", e.clientX);
-  preview.setAttribute("y2", e.clientY);
-  preview.setAttribute("stroke", "gray");
-  preview.setAttribute("stroke-dasharray", "5,5");
-  svg.appendChild(preview);
-}
-
-function clearPreview() {
-  if (preview) preview.remove();
-}
-
-function getConnected(startId) {
-  const visited = new Set();
-  function dfs(id) {
-    visited.add(id);
-    edges.forEach(e => {
-      if (e.from === id && !visited.has(e.to)) dfs(e.to);
-      if (e.to === id && !visited.has(e.from)) dfs(e.from);
-    });
-  }
-  dfs(startId);
-  return nodes.filter(n => visited.has(n.id));
-}
+/* ---------------- EDGES ---------------- */
 
 function drawEdges() {
   svg.innerHTML = "";
@@ -329,48 +311,19 @@ function drawEdges() {
     if (!from || !to) return;
 
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+
     line.setAttribute("x1", from.x + 50);
     line.setAttribute("y1", from.y + 30);
     line.setAttribute("x2", to.x + 50);
     line.setAttribute("y2", to.y + 30);
     line.setAttribute("stroke", "black");
-    line.setAttribute("stroke-width", "3");
-    line.style.pointerEvents = "stroke";
-
-    line.onmousedown = (e) => {
-      e.stopPropagation();
-      draggingGroup = getConnected(edge.from);
-
-      function move(e) {
-        draggingGroup.forEach(n => {
-          n.x += e.movementX;
-          n.y += e.movementY;
-          const el = document.querySelector(`[data-id='${n.id}']`);
-          el.style.left = n.x + "px";
-          el.style.top = n.y + "px";
-        });
-        drawEdges();
-      }
-
-      function stop() {
-        document.removeEventListener("mousemove", move);
-        document.removeEventListener("mouseup", stop);
-        saveState();
-      }
-
-      document.addEventListener("mousemove", move);
-      document.addEventListener("mouseup", stop);
-    };
-
-    line.onclick = () => {
-      edges = edges.filter(e => e !== edge);
-      drawEdges();
-      saveState();
-    };
+    line.setAttribute("stroke-width", "2");
 
     svg.appendChild(line);
   });
 }
+
+/* ---------------- DELETE ---------------- */
 
 function deleteSelected() {
   nodes = nodes.filter(n => !selectedNodes.includes(n.id));
@@ -379,66 +332,31 @@ function deleteSelected() {
   reload();
 }
 
+/* ---------------- CLEAR ---------------- */
+
 function clearAll() {
   nodes = [];
   edges = [];
   reload();
 }
 
+/* ---------------- DOWNLOAD ---------------- */
+
 function downloadMap() {
   const name = document.getElementById("filename").value || "mindmap";
-  const blob = new Blob([JSON.stringify({nodes, edges})], {type:"application/json"});
+  const blob = new Blob([JSON.stringify({ nodes, edges })], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = name + ".json";
   a.click();
 }
 
+/* ---------------- BACKGROUND CLICK ---------------- */
+
 canvas.onclick = () => {
   selectedNodes = [];
   document.querySelectorAll(".node, .textNode").forEach(n => n.classList.remove("selected"));
 };
-
-// selection box
-let startX, startY;
-canvas.addEventListener("mousedown", (e) => {
-  if (e.target !== canvas) return;
-
-  startX = e.clientX;
-  startY = e.clientY;
-
-  selectionBox.style.display = "block";
-
-  function move(e) {
-    const w = e.clientX - startX;
-    const h = e.clientY - startY;
-
-    selectionBox.style.width = Math.abs(w) + "px";
-    selectionBox.style.height = Math.abs(h) + "px";
-    selectionBox.style.left = (w < 0 ? e.clientX : startX) + "px";
-    selectionBox.style.top = (h < 0 ? e.clientY : startY) + "px";
-
-    selectedNodes = [];
-    document.querySelectorAll(".node, .textNode").forEach(el => {
-      const rect = el.getBoundingClientRect();
-      if (rect.left > selectionBox.offsetLeft && rect.top > selectionBox.offsetTop && rect.right < selectionBox.offsetLeft + selectionBox.offsetWidth && rect.bottom < selectionBox.offsetTop + selectionBox.offsetHeight) {
-        el.classList.add("selected");
-        selectedNodes.push(Number(el.dataset.id));
-      } else {
-        el.classList.remove("selected");
-      }
-    });
-  }
-
-  function stop() {
-    selectionBox.style.display = "none";
-    document.removeEventListener("mousemove", move);
-    document.removeEventListener("mouseup", stop);
-  }
-
-  document.addEventListener("mousemove", move);
-  document.addEventListener("mouseup", stop);
-});
 
 </script>
 
