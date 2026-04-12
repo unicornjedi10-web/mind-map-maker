@@ -3,6 +3,18 @@
 <head>
   <title>Mind Map App</title>
   <style>
+    .controls {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 5px;
+  background: white;
+  padding: 5px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  position: absolute;
+  z-index: 10;
+}
     textarea {
   border: none;
   background: transparent;
@@ -134,6 +146,37 @@ function createElement(node) {
   div.dataset.id = node.id;
 
   const input = document.createElement("textarea");
+  if (node.type === "node") {
+  const color = document.createElement("input");
+  color.type = "color";
+  color.value = node.color;
+  color.oninput = () => {
+    node.color = color.value;
+    div.style.background = node.color;
+    saveState();
+  };
+
+  const textColor = document.createElement("input");
+  textColor.type = "color";
+  textColor.value = node.textColor || "#000000";
+  textColor.oninput = () => {
+    node.textColor = textColor.value;
+    input.style.color = node.textColor;
+    saveState();
+  };
+const toggleBtn = document.createElement("button");
+toggleBtn.textContent = "🎨";
+
+toggleBtn.onclick = (e) => {
+  e.stopPropagation();
+  controls.style.display =
+    controls.style.display === "flex" ? "none" : "flex";
+};
+  controls.appendChild(color);
+  controls.appendChild(textColor);
+}
+  const controls = document.createElement("div");
+controls.className = "controls";
   input.value = node.text;
   input.style.color = node.textColor || node.color;
   input.style.fontSize = (node.size || 14) + "px";
@@ -197,6 +240,7 @@ input.addEventListener("input", () => {
   };
 
   div.appendChild(input);
+  div.appendChild(toggleBtn);
   div.appendChild(controls);
   canvas.appendChild(div);
 }
