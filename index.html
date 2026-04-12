@@ -29,7 +29,6 @@
     .textNode { position: absolute; cursor: move; }
     .selected { border: 2px solid #000; }
     .controls { display: none; flex-direction: column; gap: 5px; margin-top: 5px; }
-    .node.active .controls { display: flex; }
     #selectionBox { position: absolute; border: 1px dashed #333; background: rgba(0,0,0,0.05); display: none; }
     input { border: none; background: transparent; }
     button { cursor: pointer; }
@@ -172,9 +171,7 @@ toggleBtn.onclick = (e) => {
   controls.style.display =
     controls.style.display === "flex" ? "none" : "flex";
 };
-  controls.appendChild(color);
-  controls.appendChild(textColor);
-}
+    
   const controls = document.createElement("div");
 controls.className = "controls";
   input.value = node.text;
@@ -211,7 +208,6 @@ input.addEventListener("input", () => {
 
   div.onclick = (e) => {
     e.stopPropagation();
-    div.classList.toggle("active");
     toggleSelect(node.id, div);
   };
 
