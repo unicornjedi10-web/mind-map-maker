@@ -22,23 +22,29 @@
       padding: 10px;
       border-radius: 12px;
       cursor: move;
-      min-width: 80px;
+      min-width: 100px;
+      border: 2px solid transparent;
     }
-    input {
-      border: none;
-      background: transparent;
-      width: 100%;
+    .selected {
+      border: 2px solid #000;
     }
+    .controls {
+      display: flex;
+      gap: 5px;
+      margin-top: 5px;
+    }
+    input { border: none; background: transparent; width: 100%; }
   </style>
 </head>
 <body>
 
 <div id="toolbar">
   <button onclick="addNode()">Add Node</button>
+  <button onclick="groupNodes()">Group</button>
+  <button onclick="ungroupNodes()">Ungroup</button>
+  <button onclick="deleteSelected()">Delete Selected</button>
   <button onclick="downloadMap()">Download</button>
   <input type="file" onchange="uploadMap(event)">
-  <input type="color" id="colorPicker">
-  <button onclick="deleteNode()">Delete</button>
 </div>
 
 <div id="canvas"></div>
@@ -47,8 +53,7 @@
 <script>
 let nodes = [];
 let edges = [];
-let selected = null;
-let connectFrom = null;
+let selectedNodes = [];
 let id = 0;
 
 const canvas = document.getElementById("canvas");
@@ -69,13 +74,7 @@ function load() {
 }
 
 function addNode() {
-  const node = {
-    id: id++,
-    x: 200,
-    y: 200,
-    text: "Idea",
-    color: "#90cdf4"
-  };
+  const node = { id: id++, x: 200, y: 200, text: "Idea", color: "#90cdf4", group: null };
   nodes.push(node);
   createNodeElement(node);
   save();
@@ -91,26 +90,42 @@ function createNodeElement(node) {
 
   const input = document.createElement("input");
   input.value = node.text;
+  input.oninput = () => { node.text = input.value; save(); };
 
-  input.oninput = () => {
-    node.text = input.value;
+  // Controls inside node
+  const controls = document.createElement("div");
+  controls.className = "controls";
+
+  const color = document.createElement("input");
+  color.type = "color";
+  color.value = node.color;
+  color.oninput = () => {
+    node.color = color.value;
+    div.style.background = node.color;
     save();
   };
 
+  const del = document.createElement("button");
+  del.textContent = "X";
+  del.onclick = (e) => {
+    e.stopPropagation();
+    deleteNode(node.id);
+  };
+
+  const connect = document.createElement("button");
+  connect.textContent = "↔";
+  connect.onclick = (e) => {
+    e.stopPropagation();
+    connectMode(node.id);
+  };
+
+  controls.appendChild(color);
+  controls.appendChild(connect);
+  controls.appendChild(del);
+
   div.onclick = (e) => {
     e.stopPropagation();
-    selected = node.id;
-
-    if (!connectFrom) {
-      connectFrom = node.id;
-    } else {
-      if (connectFrom !== node.id) {
-        edges.push({from: connectFrom, to: node.id});
-        connectFrom = null;
-        drawEdges();
-        save();
-      }
-    }
+    toggleSelect(node.id, div);
   };
 
   let offsetX, offsetY;
@@ -119,10 +134,21 @@ function createNodeElement(node) {
     offsetY = e.offsetY;
 
     function move(e) {
-      node.x = e.clientX - offsetX;
-      node.y = e.clientY - offsetY;
-      div.style.left = node.x + "px";
-      div.style.top = node.y + "px";
+      const dx = e.clientX - offsetX;
+      const dy = e.clientY - offsetY;
+
+      const movingNodes = selectedNodes.includes(node.id)
+        ? nodes.filter(n => selectedNodes.includes(n.id))
+        : [node];
+
+      movingNodes.forEach(n => {
+        n.x += e.movementX;
+        n.y += e.movementY;
+        const el = document.querySelector(`[data-id='${n.id}']`);
+        el.style.left = n.x + "px";
+        el.style.top = n.y + "px";
+      });
+
       drawEdges();
     }
 
@@ -137,7 +163,58 @@ function createNodeElement(node) {
   };
 
   div.appendChild(input);
+  div.appendChild(controls);
   canvas.appendChild(div);
+}
+
+let connectFrom = null;
+function connectMode(id) {
+  if (!connectFrom) {
+    connectFrom = id;
+  } else {
+    if (connectFrom !== id) {
+      edges.push({from: connectFrom, to: id});
+      connectFrom = null;
+      drawEdges();
+      save();
+    }
+  }
+}
+
+function toggleSelect(id, el) {
+  if (selectedNodes.includes(id)) {
+    selectedNodes = selectedNodes.filter(i => i !== id);
+    el.classList.remove("selected");
+  } else {
+    selectedNodes.push(id);
+    el.classList.add("selected");
+  }
+}
+
+function deleteNode(id) {
+  nodes = nodes.filter(n => n.id !== id);
+  edges = edges.filter(e => e.from !== id && e.to !== id);
+  document.querySelector(`[data-id='${id}']`)?.remove();
+  drawEdges();
+  save();
+}
+
+function deleteSelected() {
+  selectedNodes.forEach(deleteNode);
+  selectedNodes = [];
+}
+
+function groupNodes() {
+  const groupId = Date.now();
+  nodes.forEach(n => {
+    if (selectedNodes.includes(n.id)) n.group = groupId;
+  });
+}
+
+function ungroupNodes() {
+  nodes.forEach(n => {
+    if (selectedNodes.includes(n.id)) n.group = null;
+  });
 }
 
 function drawEdges() {
@@ -148,44 +225,15 @@ function drawEdges() {
     if (!from || !to) return;
 
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    line.setAttribute("x1", from.x + 40);
-    line.setAttribute("y1", from.y + 20);
-    line.setAttribute("x2", to.x + 40);
-    line.setAttribute("y2", to.y + 20);
+    line.setAttribute("x1", from.x + 50);
+    line.setAttribute("y1", from.y + 30);
+    line.setAttribute("x2", to.x + 50);
+    line.setAttribute("y2", to.y + 30);
     line.setAttribute("stroke", "black");
 
     svg.appendChild(line);
   });
 }
-
-function deleteNode() {
-  if (selected === null) return;
-
-  nodes = nodes.filter(n => n.id !== selected);
-  edges = edges.filter(e => e.from !== selected && e.to !== selected);
-
-  document.querySelectorAll(".node").forEach(el => {
-    if (Number(el.dataset.id) === selected) el.remove();
-  });
-
-  selected = null;
-  drawEdges();
-  save();
-}
-
-document.getElementById("colorPicker").onchange = (e) => {
-  const node = nodes.find(n => n.id === selected);
-  if (!node) return;
-  node.color = e.target.value;
-
-  document.querySelectorAll(".node").forEach(el => {
-    if (Number(el.dataset.id) === selected) {
-      el.style.background = node.color;
-    }
-  });
-
-  save();
-};
 
 function downloadMap() {
   const blob = new Blob([JSON.stringify({nodes, edges})], {type:"application/json"});
@@ -214,8 +262,8 @@ function uploadMap(e) {
 }
 
 canvas.onclick = () => {
-  connectFrom = null;
-  selected = null;
+  selectedNodes = [];
+  document.querySelectorAll(".node").forEach(n => n.classList.remove("selected"));
 };
 
 load();
