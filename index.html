@@ -11,15 +11,18 @@
     .controls { display: none; flex-direction: column; gap: 5px; margin-top: 5px; }
     .node.active .controls { display: flex; }
     input { border: none; background: transparent; width: 100%; }
+    button { cursor: pointer; }
   </style>
 </head>
 <body>
 
 <div id="toolbar">
   <button onclick="addNode()">Add Node</button>
-  <button onclick="groupNodes()">Group</button>
-  <button onclick="ungroupNodes()">Ungroup</button>
+  <button onclick="addChildNode()">Add Child</button>
   <button onclick="deleteSelected()">Delete Selected</button>
+  <button onclick="clearAll()">Clear</button>
+  <button onclick="undo()">Undo</button>
+  <button onclick="redo()">Redo</button>
   <button onclick="downloadMap()">Download</button>
   <input id="filename" placeholder="file name" />
   <input type="file" onchange="uploadMap(event)">
@@ -32,14 +35,42 @@
 let nodes = [];
 let edges = [];
 let selectedNodes = [];
+let history = [];
+let future = [];
 let id = 0;
 let draggingNode = null;
 
 const canvas = document.getElementById("canvas");
 const svg = document.getElementById("lines");
 
-function save() {
+function saveState() {
+  history.push(JSON.stringify({nodes, edges}));
+  future = [];
   localStorage.setItem("mindmap", JSON.stringify({nodes, edges}));
+}
+
+function undo() {
+  if (!history.length) return;
+  future.push(JSON.stringify({nodes, edges}));
+  const prev = JSON.parse(history.pop());
+  nodes = prev.nodes;
+  edges = prev.edges;
+  reload();
+}
+
+function redo() {
+  if (!future.length) return;
+  history.push(JSON.stringify({nodes, edges}));
+  const next = JSON.parse(future.pop());
+  nodes = next.nodes;
+  edges = next.edges;
+  reload();
+}
+
+function reload() {
+  canvas.innerHTML = "";
+  nodes.forEach(createNodeElement);
+  drawEdges();
 }
 
 function load() {
@@ -47,16 +78,26 @@ function load() {
   if (data) {
     nodes = data.nodes || [];
     edges = data.edges || [];
-    nodes.forEach(createNodeElement);
-    drawEdges();
+    reload();
   }
 }
 
 function addNode() {
-  const node = { id: id++, x: 200, y: 200, text: "Idea", color: "#90cdf4", textColor: "#000", group: null };
+  const node = { id: id++, x: 200, y: 200, text: "Idea", color: "#90cdf4", textColor: "#000" };
   nodes.push(node);
   createNodeElement(node);
-  save();
+  saveState();
+}
+
+function addChildNode() {
+  if (selectedNodes.length !== 1) return;
+  const parent = nodes.find(n => n.id === selectedNodes[0]);
+  const node = { id: id++, x: parent.x + 120, y: parent.y + 80, text: "Child", color: "#a7f3d0", textColor: "#000" };
+  nodes.push(node);
+  edges.push({from: parent.id, to: node.id, color: "black"});
+  createNodeElement(node);
+  drawEdges();
+  saveState();
 }
 
 function createNodeElement(node) {
@@ -70,7 +111,7 @@ function createNodeElement(node) {
   const input = document.createElement("input");
   input.value = node.text;
   input.style.color = node.textColor;
-  input.oninput = () => { node.text = input.value; save(); };
+  input.oninput = () => { node.text = input.value; saveState(); };
 
   const controls = document.createElement("div");
   controls.className = "controls";
@@ -78,28 +119,30 @@ function createNodeElement(node) {
   const color = document.createElement("input");
   color.type = "color";
   color.value = node.color;
-  color.oninput = () => {
-    node.color = color.value;
-    div.style.background = node.color;
-    save();
-  };
+  color.oninput = () => { node.color = color.value; div.style.background = node.color; saveState(); };
 
   const textColor = document.createElement("input");
   textColor.type = "color";
   textColor.value = node.textColor;
-  textColor.oninput = () => {
-    node.textColor = textColor.value;
-    input.style.color = node.textColor;
-    save();
-  };
+  textColor.oninput = () => { node.textColor = textColor.value; input.style.color = node.textColor; saveState(); };
 
-  const del = document.createElement("button");
-  del.textContent = "X";
-  del.onclick = (e) => { e.stopPropagation(); deleteNode(node.id); };
+  const lineColor = document.createElement("input");
+  lineColor.type = "color";
+  lineColor.value = "#000000";
+
+  const delLine = document.createElement("button");
+  delLine.textContent = "Del Line";
+  delLine.onclick = (e) => {
+    e.stopPropagation();
+    edges = edges.filter(ed => ed.from !== node.id && ed.to !== node.id);
+    drawEdges();
+    saveState();
+  };
 
   controls.appendChild(color);
   controls.appendChild(textColor);
-  controls.appendChild(del);
+  controls.appendChild(lineColor);
+  controls.appendChild(delLine);
 
   div.onclick = (e) => {
     e.stopPropagation();
@@ -109,28 +152,22 @@ function createNodeElement(node) {
 
   div.onmousedown = (e) => {
     draggingNode = node;
-    let offsetX = e.offsetX;
-    let offsetY = e.offsetY;
 
     function move(e) {
-      const moving = selectedNodes.includes(node.id) ? nodes.filter(n => selectedNodes.includes(n.id)) : [node];
-      moving.forEach(n => {
-        n.x += e.movementX;
-        n.y += e.movementY;
-        const el = document.querySelector(`[data-id='${n.id}']`);
-        el.style.left = n.x + "px";
-        el.style.top = n.y + "px";
-      });
+      node.x += e.movementX;
+      node.y += e.movementY;
+      div.style.left = node.x + "px";
+      div.style.top = node.y + "px";
       drawEdges();
-      drawPreviewLine(e);
+      previewLine(e);
     }
 
     function stop(e) {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", stop);
-      tryConnect(e);
+      connectOnDrop(e);
       clearPreview();
-      save();
+      saveState();
     }
 
     document.addEventListener("mousemove", move);
@@ -152,59 +189,29 @@ function toggleSelect(id, el) {
   }
 }
 
-function deleteNode(id) {
-  nodes = nodes.filter(n => n.id !== id);
-  edges = edges.filter(e => e.from !== id && e.to !== id);
-  document.querySelector(`[data-id='${id}']`)?.remove();
-  drawEdges();
-  save();
-}
-
-function deleteSelected() {
-  selectedNodes.forEach(deleteNode);
-  selectedNodes = [];
-}
-
-function groupNodes() {
-  const gid = Date.now();
-  nodes.forEach(n => { if (selectedNodes.includes(n.id)) n.group = gid; });
-}
-
-function ungroupNodes() {
-  nodes.forEach(n => { if (selectedNodes.includes(n.id)) n.group = null; });
-}
-
-function tryConnect(e) {
-  const target = nodes.find(n => {
-    return Math.abs(n.x - draggingNode.x) < 80 && Math.abs(n.y - draggingNode.y) < 80 && n.id !== draggingNode.id;
-  });
-
+function connectOnDrop(e) {
+  const target = nodes.find(n => Math.abs(n.x - draggingNode.x) < 80 && Math.abs(n.y - draggingNode.y) < 80 && n.id !== draggingNode.id);
   if (target) {
     edges.push({from: draggingNode.id, to: target.id, color: "black"});
-    draggingNode.group = target.group || Date.now();
-    target.group = draggingNode.group;
     drawEdges();
   }
 }
 
-let previewLine = null;
-function drawPreviewLine(e) {
+let preview = null;
+function previewLine(e) {
   clearPreview();
-  if (!draggingNode) return;
-
-  previewLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-  previewLine.setAttribute("x1", draggingNode.x + 50);
-  previewLine.setAttribute("y1", draggingNode.y + 30);
-  previewLine.setAttribute("x2", e.clientX);
-  previewLine.setAttribute("y2", e.clientY);
-  previewLine.setAttribute("stroke", "gray");
-  previewLine.setAttribute("stroke-dasharray", "5,5");
-
-  svg.appendChild(previewLine);
+  preview = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  preview.setAttribute("x1", draggingNode.x + 50);
+  preview.setAttribute("y1", draggingNode.y + 30);
+  preview.setAttribute("x2", e.clientX);
+  preview.setAttribute("y2", e.clientY);
+  preview.setAttribute("stroke", "gray");
+  preview.setAttribute("stroke-dasharray", "5,5");
+  svg.appendChild(preview);
 }
 
 function clearPreview() {
-  if (previewLine) previewLine.remove();
+  if (preview) preview.remove();
 }
 
 function drawEdges() {
@@ -220,9 +227,32 @@ function drawEdges() {
     line.setAttribute("x2", to.x + 50);
     line.setAttribute("y2", to.y + 30);
     line.setAttribute("stroke", edge.color || "black");
+    line.setAttribute("stroke-width", "2");
+
+    line.onclick = () => {
+      edges = edges.filter(e => e !== edge);
+      drawEdges();
+      saveState();
+    };
 
     svg.appendChild(line);
   });
+}
+
+function deleteSelected() {
+  nodes = nodes.filter(n => !selectedNodes.includes(n.id));
+  edges = edges.filter(e => !selectedNodes.includes(e.from) && !selectedNodes.includes(e.to));
+  selectedNodes = [];
+  reload();
+  saveState();
+}
+
+function clearAll() {
+  nodes = [];
+  edges = [];
+  selectedNodes = [];
+  reload();
+  saveState();
 }
 
 function downloadMap() {
@@ -243,11 +273,8 @@ function uploadMap(e) {
     const data = JSON.parse(reader.result);
     nodes = data.nodes || [];
     edges = data.edges || [];
-
-    canvas.innerHTML = "";
-    nodes.forEach(createNodeElement);
-    drawEdges();
-    save();
+    reload();
+    saveState();
   };
   reader.readAsText(file);
 }
