@@ -27,6 +27,7 @@
   <button onclick="redo()">Redo</button>
   <button onclick="downloadMap()">Download</button>
   <input id="filename" placeholder="file name" />
+  <input type="file" accept=".json" onchange="loadMap(event)">
   <input type="color" onchange="document.body.style.background=this.value">
   <input type="color" onchange="toolbar.style.background=this.value">
 </div>
@@ -53,6 +54,30 @@ const toolbar = document.getElementById("toolbar");
 function saveState() {
   history.push(JSON.stringify({nodes, edges}));
   future = [];
+}
+function loadMap(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+
+      nodes = data.nodes || [];
+      edges = data.edges || [];
+
+      selectedNodes = [];
+
+      reload();   // redraw everything
+      saveState(); // keep undo working
+    } catch (err) {
+      alert("Invalid file — not a valid mind map JSON");
+    }
+  };
+
+  reader.readAsText(file);
 }
 
 function undo() {
