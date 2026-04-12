@@ -3,6 +3,13 @@
 <head>
   <title>Mind Map App</title>
   <style>
+    textarea {
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font-family: inherit;
+}
     body { margin: 0; font-family: Arial; }
     #toolbar { padding: 10px; background: #eee; display: flex; gap: 10px; }
     #canvas { width: 100vw; height: 90vh; position: relative; overflow: hidden; }
@@ -126,12 +133,20 @@ function createElement(node) {
   if (node.type === "node") div.style.background = node.color;
   div.dataset.id = node.id;
 
-  const input = document.createElement("input");
+  const input = document.createElement("textarea");
   input.value = node.text;
   input.style.color = node.textColor || node.color;
   input.style.fontSize = (node.size || 14) + "px";
 
   input.oninput = () => { node.text = input.value; saveState(); };
+  input.style.resize = "none";
+input.style.overflow = "hidden";
+
+input.addEventListener("input", () => {
+  input.style.height = "auto";
+  input.style.height = input.scrollHeight + "px";
+  input.style.minHeight = "20px";
+});
 
   const controls = document.createElement("div");
   controls.className = "controls";
