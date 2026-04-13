@@ -192,6 +192,7 @@
             height: 100%;
             top: 0;
             left: 0;
+            pointer-events: none;
         }
 
         .nodes-container {
@@ -252,6 +253,7 @@
             top: 0;
             left: 0;
             pointer-events: none;
+            transition: all 0.2s ease;
         }
 
         .node-wrapper.selected .node-bg {
@@ -260,6 +262,11 @@
 
         .node-wrapper.grouped .node-bg {
             border: 2px dashed #764ba2;
+        }
+
+        .node-wrapper.temp-grouped .node-bg {
+            border: 2px solid #51cf66;
+            opacity: 0.95;
         }
 
         .node-controls {
@@ -623,9 +630,9 @@
                 <div class="info-text">
                     💡 <strong>Tips:</strong><br>
                     • Drag nodes to move<br>
+                    • Drag selection box to select & move<br>
                     • Click to edit text<br>
                     • Right-drag to connect<br>
-                    • Drag connection lines<br>
                     • Ctrl+Click multi-select<br>
                     • Delete key to remove
                 </div>
@@ -669,14 +676,14 @@
         let connections = [];
         let groups = [];
         let selectedNodes = [];
-        let draggedNodeId = null;
+        let draggedNodeIds = [];
         let dragStart = null;
         let connectingFrom = null;
         let previewLine = null;
         let selectionBox = null;
         let isDrawingSelection = false;
         let selectionStart = null;
-        let draggingConnectionId = null;
+        let tempGroupedNodes = [];
 
         let nodeIdCounter = 0;
         let connectionIdCounter = 0;
@@ -760,8 +767,17 @@
                             selectedNodes.push(clickedNode.id);
                         }
                     }
-                    draggedNodeId = clickedNode.id;
-                    dragStart = { x, y, nodeX: clickedNode.x, nodeY: clickedNode.y };
+                    
+                    // Start dragging all selected nodes
+                    draggedNodeIds = [...selectedNodes];
+                    dragStart = { 
+                        x, 
+                        y, 
+                        nodeOffsets: selectedNodes.map(id => {
+                            const node = nodes.find(n => n.id === id);
+                            return { id, offsetX: x - node.x, offsetY: y - node.y };
+                        })
+                    };
                     updateUI();
                 } else {
                     if (!e.ctrlKey) {
@@ -796,14 +812,20 @@
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
-            if (draggedNodeId !== null && dragStart) {
-                const node = nodes.find(n => n.id === draggedNodeId);
-                if (node) {
-                    node.x = dragStart.nodeX + (x - dragStart.x);
-                    node.y = dragStart.nodeY + (y - dragStart.y);
-                    updateNodeElement(node);
-                    draw();
-                }
+            if (draggedNodeIds.length > 0 && dragStart) {
+                const deltaX = x - dragStart.x;
+                const deltaY = y - dragStart.y;
+
+                dragStart.nodeOffsets.forEach(offset => {
+                    const node = nodes.find(n => n.id === offset.id);
+                    if (node) {
+                        node.x = x - offset.offsetX;
+                        node.y = y - offset.offsetY;
+                        updateNodeElement(node);
+                    }
+                });
+
+                draw();
             } else if (connectingFrom !== null) {
                 previewLine = {
                     fromX: previewLine.fromX,
@@ -822,6 +844,18 @@
                 selectionBox.style.top = (rect.top + minY) + 'px';
                 selectionBox.style.width = (maxX - minX) + 'px';
                 selectionBox.style.height = (maxY - minY) + 'px';
+
+                // Temporarily highlight nodes in selection
+                tempGroupedNodes = nodes
+                    .filter(n => {
+                        return n.x + n.width / 2 > minX && 
+                               n.x + n.width / 2 < maxX && 
+                               n.y + n.height / 2 > minY && 
+                               n.y + n.height / 2 < maxY;
+                    })
+                    .map(n => n.id);
+
+                updateTempGroupUI();
             }
         }
 
@@ -830,8 +864,8 @@
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
-            if (draggedNodeId !== null) {
-                draggedNodeId = null;
+            if (draggedNodeIds.length > 0) {
+                draggedNodeIds = [];
                 dragStart = null;
             } else if (connectingFrom !== null) {
                 const toNode = getNodeAtPosition(x, y);
@@ -861,6 +895,7 @@
                     selectionBox.remove();
                     selectionBox = null;
                 }
+                tempGroupedNodes = [];
             }
 
             draw();
@@ -996,6 +1031,19 @@
                 wrapper.style.left = node.x + 'px';
                 wrapper.style.top = node.y + 'px';
             }
+        }
+
+        function updateTempGroupUI() {
+            nodes.forEach(node => {
+                const wrapper = document.getElementById(`node-wrapper-${node.id}`);
+                if (wrapper) {
+                    if (tempGroupedNodes.includes(node.id)) {
+                        wrapper.classList.add('temp-grouped');
+                    } else {
+                        wrapper.classList.remove('temp-grouped');
+                    }
+                }
+            });
         }
 
         function deleteNodeById(nodeId) {
@@ -1245,6 +1293,7 @@
             connections = [];
             groups = [];
             selectedNodes = [];
+            tempGroupedNodes = [];
             nodeIdCounter = 0;
             connectionIdCounter = 0;
             
@@ -1260,6 +1309,7 @@
                 connections = [];
                 groups = [];
                 selectedNodes = [];
+                tempGroupedNodes = [];
                 nodeIdCounter = 0;
                 connectionIdCounter = 0;
                 document.querySelectorAll('.node-wrapper').forEach(el => el.remove());
@@ -1325,6 +1375,7 @@
             connections = mapData.connections || [];
             groups = mapData.groups || [];
             selectedNodes = [];
+            tempGroupedNodes = [];
 
             // Clear old node elements
             document.querySelectorAll('.node-wrapper').forEach(el => el.remove());
