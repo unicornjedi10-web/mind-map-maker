@@ -214,13 +214,21 @@
             cursor: grabbing;
         }
 
+        .node-wrapper:hover {
+            z-index: 10;
+        }
+
+        .node-wrapper.selected {
+            z-index: 20;
+        }
+
         .node {
             padding: 12px 16px;
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-            user-select: none;
+            user-select: text;
             border: none;
-            cursor: inherit;
+            cursor: text;
             font-family: inherit;
             font-weight: 600;
             font-size: 13px;
@@ -237,6 +245,8 @@
             white-space: pre-wrap;
             height: auto;
             max-height: 150px;
+            display: block;
+            width: 100%;
         }
 
         .node:focus {
@@ -284,6 +294,7 @@
             z-index: 100;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             white-space: nowrap;
+            pointer-events: all;
         }
 
         .node-wrapper:hover .node-controls,
@@ -431,6 +442,7 @@
             display: flex;
             gap: 10px;
             z-index: 500;
+            pointer-events: all;
         }
 
         .file-list {
@@ -549,7 +561,7 @@
             border: 2px dashed #667eea;
             background: rgba(102, 126, 234, 0.08);
             pointer-events: none;
-            z-index: 999;
+            z-index: 5;
             border-radius: 4px;
             box-shadow: inset 0 0 0 1px rgba(102, 126, 234, 0.2);
         }
@@ -741,14 +753,21 @@
             downloadModal.classList.remove('show');
         });
 
-        // Canvas Events
-        canvasArea.addEventListener('mousedown', onCanvasMouseDown);
-        document.addEventListener('mousemove', onCanvasMouseMove);
-        document.addEventListener('mouseup', onCanvasMouseUp);
+        // Main event handlers
+        canvasArea.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
         canvasArea.addEventListener('contextmenu', (e) => e.preventDefault());
 
-        function onCanvasMouseDown(e) {
-            if (e.target.tagName === 'TEXTAREA' || e.target.closest('#fileList')) return;
+        function onMouseDown(e) {
+            // Don't interfere with textarea or buttons
+            if (e.target.tagName === 'TEXTAREA' || 
+                e.target.tagName === 'INPUT' ||
+                e.target.tagName === 'BUTTON' ||
+                e.target.closest('button') ||
+                e.target.closest('#fileList')) {
+                return;
+            }
 
             const rect = canvasArea.getBoundingClientRect();
             const x = e.clientX - rect.left;
@@ -758,6 +777,7 @@
 
             if (e.button === 0) { // Left click
                 if (clickedNode) {
+                    // Select node(s)
                     if (!e.ctrlKey && !selectedNodes.includes(clickedNode.id)) {
                         selectedNodes = [clickedNode.id];
                     } else if (e.ctrlKey) {
@@ -767,19 +787,25 @@
                             selectedNodes.push(clickedNode.id);
                         }
                     }
-                    
-                    // Start dragging all selected nodes
+
+                    // Prepare to drag
                     draggedNodeIds = [...selectedNodes];
-                    dragStart = { 
-                        x, 
-                        y, 
+                    dragStart = {
+                        x,
+                        y,
                         nodeOffsets: selectedNodes.map(id => {
                             const node = nodes.find(n => n.id === id);
-                            return { id, offsetX: x - node.x, offsetY: y - node.y };
+                            return {
+                                id,
+                                startX: node.x,
+                                startY: node.y
+                            };
                         })
                     };
                     updateUI();
+                    draw();
                 } else {
+                    // Start selection box
                     if (!e.ctrlKey) {
                         selectedNodes = [];
                     }
@@ -791,6 +817,7 @@
                         document.body.appendChild(selectionBox);
                     }
                     updateUI();
+                    draw();
                 }
             } else if (e.button === 2) { // Right click - connect
                 if (clickedNode) {
@@ -807,34 +834,31 @@
             }
         }
 
-        function onCanvasMouseMove(e) {
+        function onMouseMove(e) {
             const rect = canvasArea.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
             if (draggedNodeIds.length > 0 && dragStart) {
-                const deltaX = x - dragStart.x;
-                const deltaY = y - dragStart.y;
-
+                // Move nodes
                 dragStart.nodeOffsets.forEach(offset => {
                     const node = nodes.find(n => n.id === offset.id);
                     if (node) {
-                        node.x = x - offset.offsetX;
-                        node.y = y - offset.offsetY;
+                        const deltaX = x - dragStart.x;
+                        const deltaY = y - dragStart.y;
+                        node.x = offset.startX + deltaX;
+                        node.y = offset.startY + deltaY;
                         updateNodeElement(node);
                     }
                 });
-
                 draw();
-            } else if (connectingFrom !== null) {
-                previewLine = {
-                    fromX: previewLine.fromX,
-                    fromY: previewLine.fromY,
-                    toX: x,
-                    toY: y
-                };
+            } else if (connectingFrom !== null && previewLine) {
+                // Update connection preview
+                previewLine.toX = x;
+                previewLine.toY = y;
                 draw();
             } else if (isDrawingSelection && selectionStart) {
+                // Update selection box
                 const minX = Math.min(selectionStart.x, x);
                 const minY = Math.min(selectionStart.y, y);
                 const maxX = Math.max(selectionStart.x, x);
@@ -845,13 +869,13 @@
                 selectionBox.style.width = (maxX - minX) + 'px';
                 selectionBox.style.height = (maxY - minY) + 'px';
 
-                // Temporarily highlight nodes in selection
+                // Highlight nodes in selection
                 tempGroupedNodes = nodes
                     .filter(n => {
-                        return n.x + n.width / 2 > minX && 
-                               n.x + n.width / 2 < maxX && 
-                               n.y + n.height / 2 > minY && 
-                               n.y + n.height / 2 < maxY;
+                        return n.x < maxX && 
+                               n.x + n.width > minX && 
+                               n.y < maxY && 
+                               n.y + n.height > minY;
                     })
                     .map(n => n.id);
 
@@ -859,15 +883,17 @@
             }
         }
 
-        function onCanvasMouseUp(e) {
+        function onMouseUp(e) {
             const rect = canvasArea.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
             if (draggedNodeIds.length > 0) {
+                // Finished dragging
                 draggedNodeIds = [];
                 dragStart = null;
             } else if (connectingFrom !== null) {
+                // Finished connecting
                 const toNode = getNodeAtPosition(x, y);
                 if (toNode && toNode.id !== connectingFrom) {
                     createConnection(connectingFrom, toNode.id);
@@ -875,6 +901,7 @@
                 connectingFrom = null;
                 previewLine = null;
             } else if (isDrawingSelection && selectionStart) {
+                // Finished selection
                 const minX = Math.min(selectionStart.x, x);
                 const maxX = Math.max(selectionStart.x, x);
                 const minY = Math.min(selectionStart.y, y);
@@ -882,10 +909,10 @@
 
                 selectedNodes = nodes
                     .filter(n => {
-                        return n.x + n.width / 2 > minX && 
-                               n.x + n.width / 2 < maxX && 
-                               n.y + n.height / 2 > minY && 
-                               n.y + n.height / 2 < maxY;
+                        return n.x < maxX && 
+                               n.x + n.width > minX && 
+                               n.y < maxY && 
+                               n.y + n.height > minY;
                     })
                     .map(n => n.id);
 
@@ -905,8 +932,8 @@
         function getNodeAtPosition(x, y) {
             for (let i = nodes.length - 1; i >= 0; i--) {
                 const node = nodes[i];
-                if (x > node.x && x < node.x + node.width &&
-                    y > node.y && y < node.y + node.height) {
+                if (x >= node.x && x <= node.x + node.width &&
+                    y >= node.y && y <= node.y + node.height) {
                     return node;
                 }
             }
@@ -1009,6 +1036,7 @@
                 e.stopPropagation();
                 selectedNodes = [node.id];
                 updateUI();
+                draw();
             });
 
             input.addEventListener('mousedown', (e) => {
@@ -1019,6 +1047,7 @@
                 if (e.target !== input) {
                     selectedNodes = [node.id];
                     updateUI();
+                    draw();
                 }
             });
 
@@ -1296,6 +1325,7 @@
             tempGroupedNodes = [];
             nodeIdCounter = 0;
             connectionIdCounter = 0;
+            draggedNodeIds = [];
             
             document.querySelectorAll('.node-wrapper').forEach(el => el.remove());
             draw();
@@ -1312,6 +1342,7 @@
                 tempGroupedNodes = [];
                 nodeIdCounter = 0;
                 connectionIdCounter = 0;
+                draggedNodeIds = [];
                 document.querySelectorAll('.node-wrapper').forEach(el => el.remove());
                 draw();
                 updateUI();
@@ -1376,6 +1407,7 @@
             groups = mapData.groups || [];
             selectedNodes = [];
             tempGroupedNodes = [];
+            draggedNodeIds = [];
 
             // Clear old node elements
             document.querySelectorAll('.node-wrapper').forEach(el => el.remove());
