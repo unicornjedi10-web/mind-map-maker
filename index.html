@@ -42,11 +42,6 @@
             display: none;
         }
 
-        .sidebar.minimized .minimize-btn {
-            width: 100%;
-            text-align: center;
-        }
-
         .minimize-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -64,10 +59,6 @@
         .minimize-btn:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .minimize-btn:active {
-            transform: translateY(0);
         }
 
         .menu-content h3 {
@@ -192,32 +183,33 @@
             top: 0;
             left: 0;
             background: white;
-            cursor: crosshair;
+            cursor: default;
             display: block;
         }
 
-        .node-container {
+        .node-wrapper {
             position: absolute;
-            cursor: move;
+            cursor: grab;
             user-select: none;
             transition: filter 0.2s ease;
         }
 
-        .node-container:hover {
+        .node-wrapper:active {
+            cursor: grabbing;
+        }
+
+        .node-wrapper:hover {
             filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.25));
         }
 
-        .node-container.selected {
+        .node-wrapper.selected {
             filter: drop-shadow(0 0 0 3px #667eea) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2));
         }
 
         .node {
-            width: 100px;
-            height: 100px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            padding: 12px 16px;
+            border-radius: 8px;
+            display: inline-block;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
             user-select: none;
             position: relative;
@@ -228,13 +220,15 @@
             font-size: 13px;
             color: white;
             overflow: hidden;
-            padding: 10px;
             text-align: center;
-            line-height: 1.2;
+            line-height: 1.4;
+            min-width: 80px;
+            max-width: 150px;
             word-break: break-word;
             resize: none;
             background: none;
             outline: none;
+            white-space: pre-wrap;
         }
 
         .node::placeholder {
@@ -249,13 +243,13 @@
             position: absolute;
             width: 100%;
             height: 100%;
-            border-radius: 50%;
+            border-radius: 8px;
             z-index: -1;
             top: 0;
             left: 0;
         }
 
-        .node-container.grouped .node-bg {
+        .node-wrapper.grouped .node-bg {
             border: 2px dashed #764ba2;
         }
 
@@ -276,7 +270,7 @@
             white-space: nowrap;
         }
 
-        .node-container:hover .node-controls {
+        .node-wrapper:hover .node-controls {
             display: flex;
             animation: slideDown 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
@@ -334,6 +328,26 @@
             border: none;
             cursor: pointer;
             padding: 0;
+        }
+
+        .connection-line {
+            position: absolute;
+            cursor: grab;
+            user-select: none;
+        }
+
+        .connection-line:active {
+            cursor: grabbing;
+        }
+
+        .connection-line:hover {
+            filter: drop-shadow(0 0 5px rgba(0, 0, 0, 0.3));
+        }
+
+        .connection-line svg {
+            position: absolute;
+            top: 0;
+            left: 0;
         }
 
         .preview-line {
@@ -634,15 +648,15 @@
                     💡 <strong>Tips:</strong><br>
                     • Drag nodes to move<br>
                     • Right-drag to connect<br>
-                    • Click node to edit<br>
+                    • Click to edit text<br>
                     • Ctrl+Click multi-select<br>
-                    • Drag to select multiple
+                    • Drag connection lines<br>
                 </div>
             </div>
         </div>
 
         <div class="canvas-area" id="canvasArea">
-            <canvas id="canvas"></canvas>
+            <svg id="canvas"></svg>
             <div class="header-controls">
                 <button class="btn-primary btn-sm" id="clearCanvasBtn">Clear All</button>
             </div>
@@ -662,34 +676,25 @@
 
     <script>
         const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
         const canvasArea = document.getElementById('canvasArea');
         const sidebar = document.getElementById('sidebar');
         const minimizeBtn = document.getElementById('minimizeBtn');
-
-        // Set canvas size
-        function resizeCanvas() {
-            canvas.width = canvasArea.clientWidth;
-            canvas.height = canvasArea.clientHeight;
-        }
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
 
         // Data structure
         let nodes = [];
         let connections = [];
         let groups = [];
         let selectedNodes = [];
-        let draggedNode = null;
+        let draggedNodeId = null;
         let connectingFrom = null;
         let previewLine = null;
         let selectionBox = null;
         let isDrawingSelection = false;
         let selectionStart = null;
-        let editingNodeId = null;
+        let draggingConnectionId = null;
 
-        const NODE_RADIUS = 50;
         let nodeIdCounter = 0;
+        let connectionIdCounter = 0;
 
         // UI Elements
         const nodeColorInput = document.getElementById('nodeColor');
@@ -725,20 +730,26 @@
         });
 
         // Canvas Events
-        canvas.addEventListener('mousedown', onCanvasMouseDown);
-        canvas.addEventListener('mousemove', onCanvasMouseMove);
-        canvas.addEventListener('mouseup', onCanvasMouseUp);
-        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        canvasArea.addEventListener('mousedown', onCanvasMouseDown);
+        canvasArea.addEventListener('mousemove', onCanvasMouseMove);
+        canvasArea.addEventListener('mouseup', onCanvasMouseUp);
+        canvasArea.addEventListener('contextmenu', (e) => e.preventDefault());
 
         function onCanvasMouseDown(e) {
-            const rect = canvas.getBoundingClientRect();
+            if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+
+            const rect = canvasArea.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
             const clickedNode = getNodeAtPosition(x, y);
+            const clickedConnection = getConnectionAtPosition(x, y);
 
             if (e.button === 0) { // Left click
-                if (clickedNode) {
+                if (clickedConnection && !connectingFrom) {
+                    draggingConnectionId = clickedConnection.id;
+                    previewLine = { ...clickedConnection };
+                } else if (clickedNode) {
                     if (!e.ctrlKey && !selectedNodes.includes(clickedNode.id)) {
                         selectedNodes = [clickedNode.id];
                     } else if (e.ctrlKey) {
@@ -748,7 +759,7 @@
                             selectedNodes.push(clickedNode.id);
                         }
                     }
-                    draggedNode = clickedNode.id;
+                    draggedNodeId = clickedNode.id;
                     updateUI();
                 } else {
                     if (!e.ctrlKey) {
@@ -766,28 +777,48 @@
             } else if (e.button === 2) { // Right click - connect
                 if (clickedNode) {
                     connectingFrom = clickedNode.id;
+                    const node = nodes.find(n => n.id === clickedNode.id);
+                    previewLine = {
+                        fromX: node.x + node.width / 2,
+                        fromY: node.y + node.height / 2,
+                        toX: x,
+                        toY: y
+                    };
                 }
             }
         }
 
         function onCanvasMouseMove(e) {
-            const rect = canvas.getBoundingClientRect();
+            const rect = canvasArea.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
-            if (draggedNode !== null) {
-                const node = nodes.find(n => n.id === draggedNode);
+            if (draggedNodeId !== null) {
+                const node = nodes.find(n => n.id === draggedNodeId);
                 if (node) {
-                    node.x = x - NODE_RADIUS;
-                    node.y = y - NODE_RADIUS;
+                    node.x = x - node.width / 2;
+                    node.y = y - node.height / 2;
                     draw();
                 }
+            } else if (draggingConnectionId !== null) {
+                const connection = connections.find(c => c.id === draggingConnectionId);
+                if (connection) {
+                    const toNode = getNodeAtPosition(x, y);
+                    if (toNode) {
+                        previewLine = { ...connection, toId: toNode.id };
+                    }
+                }
+                draw();
             } else if (connectingFrom !== null) {
                 const fromNode = nodes.find(n => n.id === connectingFrom);
                 if (fromNode) {
-                    const fromX = fromNode.x + NODE_RADIUS;
-                    const fromY = fromNode.y + NODE_RADIUS;
-                    drawPreviewLine(fromX, fromY, x, y);
+                    previewLine = {
+                        fromX: fromNode.x + fromNode.width / 2,
+                        fromY: fromNode.y + fromNode.height / 2,
+                        toX: x,
+                        toY: y
+                    };
+                    draw();
                 }
             } else if (isDrawingSelection && selectionStart) {
                 const minX = Math.min(selectionStart.x, x);
@@ -803,12 +834,20 @@
         }
 
         function onCanvasMouseUp(e) {
-            const rect = canvas.getBoundingClientRect();
+            const rect = canvasArea.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
-            if (draggedNode !== null) {
-                draggedNode = null;
+            if (draggedNodeId !== null) {
+                draggedNodeId = null;
+            } else if (draggingConnectionId !== null) {
+                const toNode = getNodeAtPosition(x, y);
+                if (toNode && previewLine.toId && previewLine.toId !== previewLine.fromId) {
+                    const connection = connections.find(c => c.id === draggingConnectionId);
+                    connection.toId = previewLine.toId;
+                }
+                draggingConnectionId = null;
+                previewLine = null;
             } else if (connectingFrom !== null) {
                 const toNode = getNodeAtPosition(x, y);
                 if (toNode && toNode.id !== connectingFrom) {
@@ -824,8 +863,8 @@
 
                 selectedNodes = nodes
                     .filter(n => {
-                        const nx = n.x + NODE_RADIUS;
-                        const ny = n.y + NODE_RADIUS;
+                        const nx = n.x + n.width / 2;
+                        const ny = n.y + n.height / 2;
                         return nx > minX && nx < maxX && ny > minY && ny < maxY;
                     })
                     .map(n => n.id);
@@ -845,13 +884,61 @@
         function getNodeAtPosition(x, y) {
             for (let i = nodes.length - 1; i >= 0; i--) {
                 const node = nodes[i];
-                const dx = x - (node.x + NODE_RADIUS);
-                const dy = y - (node.y + NODE_RADIUS);
-                if (dx * dx + dy * dy < NODE_RADIUS * NODE_RADIUS) {
+                if (x > node.x && x < node.x + node.width &&
+                    y > node.y && y < node.y + node.height) {
                     return node;
                 }
             }
             return null;
+        }
+
+        function getConnectionAtPosition(x, y) {
+            for (let i = connections.length - 1; i >= 0; i--) {
+                const conn = connections[i];
+                const from = nodes.find(n => n.id === conn.fromId);
+                const to = nodes.find(n => n.id === conn.toId);
+                if (from && to) {
+                    const fromX = from.x + from.width / 2;
+                    const fromY = from.y + from.height / 2;
+                    const toX = to.x + to.width / 2;
+                    const toY = to.y + to.height / 2;
+
+                    const dist = pointToLineDistance(x, y, fromX, fromY, toX, toY);
+                    if (dist < 5) {
+                        return conn;
+                    }
+                }
+            }
+            return null;
+        }
+
+        function pointToLineDistance(px, py, x1, y1, x2, y2) {
+            const A = px - x1;
+            const B = py - y1;
+            const C = x2 - x1;
+            const D = y2 - y1;
+
+            const dot = A * C + B * D;
+            const lenSq = C * C + D * D;
+            let param = -1;
+            if (lenSq !== 0) param = dot / lenSq;
+
+            let xx, yy;
+
+            if (param < 0) {
+                xx = x1;
+                yy = y1;
+            } else if (param > 1) {
+                xx = x2;
+                yy = y2;
+            } else {
+                xx = x1 + param * C;
+                yy = y1 + param * D;
+            }
+
+            const dx = px - xx;
+            const dy = py - yy;
+            return Math.sqrt(dx * dx + dy * dy);
         }
 
         function addNode() {
@@ -859,11 +946,16 @@
             const color = nodeColorInput.value;
             const textColor = textColorInput.value;
 
+            const width = 100;
+            const height = 50;
+
             const node = {
                 id: nodeIdCounter++,
                 text: text,
-                x: Math.random() * (canvas.width - 150),
-                y: Math.random() * (canvas.height - 150),
+                x: Math.random() * (canvasArea.clientWidth - 200),
+                y: Math.random() * (canvasArea.clientHeight - 200),
+                width: width,
+                height: height,
                 color: color,
                 textColor: textColor,
                 grouped: false
@@ -877,11 +969,13 @@
         }
 
         function createNodeElement(node) {
-            const container = document.createElement('div');
-            container.className = 'node-container';
-            container.id = `node-container-${node.id}`;
-            container.style.left = node.x + 'px';
-            container.style.top = node.y + 'px';
+            const wrapper = document.createElement('div');
+            wrapper.className = 'node-wrapper';
+            wrapper.id = `node-wrapper-${node.id}`;
+            wrapper.style.left = node.x + 'px';
+            wrapper.style.top = node.y + 'px';
+            wrapper.style.width = node.width + 'px';
+            wrapper.style.height = node.height + 'px';
 
             const bg = document.createElement('div');
             bg.className = 'node-bg';
@@ -934,9 +1028,9 @@
             controls.appendChild(textColorBtn);
             controls.appendChild(deleteBtn);
 
-            container.appendChild(bg);
-            container.appendChild(input);
-            container.appendChild(controls);
+            wrapper.appendChild(bg);
+            wrapper.appendChild(input);
+            wrapper.appendChild(controls);
 
             input.addEventListener('input', (e) => {
                 node.text = e.target.value;
@@ -947,56 +1041,29 @@
                 updateUI();
             });
 
-            container.addEventListener('mousedown', (e) => {
-                if (e.target === input) return;
+            input.addEventListener('keydown', (e) => {
                 e.stopPropagation();
-                const rect = canvas.getBoundingClientRect();
-                const startX = e.clientX - rect.left;
-                const startY = e.clientY - rect.top;
-
-                if (!selectedNodes.includes(node.id)) {
-                    selectedNodes = [node.id];
-                    updateUI();
-                }
-                draggedNode = node.id;
-
-                const handleMouseMove = (moveE) => {
-                    const x = moveE.clientX - rect.left;
-                    const y = moveE.clientY - rect.top;
-                    const dx = x - startX;
-                    const dy = y - startY;
-
-                    node.x += dx;
-                    node.y += dy;
-                    container.style.left = node.x + 'px';
-                    container.style.top = node.y + 'px';
-                    draw();
-                };
-
-                const handleMouseUp = () => {
-                    draggedNode = null;
-                    document.removeEventListener('mousemove', handleMouseMove);
-                    document.removeEventListener('mouseup', handleMouseUp);
-                };
-
-                document.addEventListener('mousemove', handleMouseMove);
-                document.addEventListener('mouseup', handleMouseUp);
             });
 
-            canvasArea.appendChild(container);
+            wrapper.addEventListener('mousedown', (e) => {
+                if (e.target === input) return;
+                e.stopPropagation();
+            });
+
+            canvasArea.appendChild(wrapper);
         }
 
         function deleteNodeById(nodeId) {
             nodes = nodes.filter(n => n.id !== nodeId);
-            connections = connections.filter(c => c.from !== nodeId && c.to !== nodeId);
+            connections = connections.filter(c => c.fromId !== nodeId && c.toId !== nodeId);
             groups = groups.map(g => ({
                 ...g,
                 nodeIds: g.nodeIds.filter(id => id !== nodeId)
             })).filter(g => g.nodeIds.length > 0);
             selectedNodes = selectedNodes.filter(id => id !== nodeId);
             
-            const container = document.getElementById(`node-container-${nodeId}`);
-            if (container) container.remove();
+            const wrapper = document.getElementById(`node-wrapper-${nodeId}`);
+            if (wrapper) wrapper.remove();
             
             showNotification('Node deleted!');
             draw();
@@ -1009,14 +1076,16 @@
                 return;
             }
 
-            selectedNodes.forEach(nodeId => deleteNodeById(nodeId));
+            const toDelete = [...selectedNodes];
+            toDelete.forEach(nodeId => deleteNodeById(nodeId));
         }
 
         function createConnection(fromId, toId) {
-            if (!connections.find(c => c.from === fromId && c.to === toId)) {
+            if (!connections.find(c => c.fromId === fromId && c.toId === toId)) {
                 connections.push({
-                    from: fromId,
-                    to: toId,
+                    id: connectionIdCounter++,
+                    fromId: fromId,
+                    toId: toId,
                     color: lineColorInput.value
                 });
                 showNotification('Connection created!');
@@ -1039,8 +1108,8 @@
                 const node = nodes.find(n => n.id === nodeId);
                 if (node) {
                     node.grouped = true;
-                    const container = document.getElementById(`node-container-${nodeId}`);
-                    if (container) container.classList.add('grouped');
+                    const wrapper = document.getElementById(`node-wrapper-${nodeId}`);
+                    if (wrapper) wrapper.classList.add('grouped');
                 }
             });
 
@@ -1061,8 +1130,8 @@
                         const node = nodes.find(n => n.id === nodeId);
                         if (node) {
                             node.grouped = false;
-                            const container = document.getElementById(`node-container-${nodeId}`);
-                            if (container) container.classList.remove('grouped');
+                            const wrapper = document.getElementById(`node-wrapper-${nodeId}`);
+                            if (wrapper) wrapper.classList.remove('grouped');
                         }
                     });
                     return false;
@@ -1074,69 +1143,77 @@
             updateUI();
         }
 
-        function drawPreviewLine(fromX, fromY, toX, toY) {
-            previewLine = { fromX, fromY, toX, toY };
-            draw();
-        }
-
         function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Clear canvas
+            while (canvas.firstChild) {
+                canvas.removeChild(canvas.firstChild);
+            }
 
             // Draw connections
             connections.forEach(conn => {
-                const fromNode = nodes.find(n => n.id === conn.from);
-                const toNode = nodes.find(n => n.id === conn.to);
+                const fromNode = nodes.find(n => n.id === conn.fromId);
+                const toNode = nodes.find(n => n.id === conn.toId);
 
                 if (fromNode && toNode) {
-                    ctx.strokeStyle = conn.color;
-                    ctx.lineWidth = 2.5;
-                    ctx.lineCap = 'round';
-                    ctx.lineJoin = 'round';
-                    ctx.setLineDash([]);
-                    ctx.beginPath();
-                    ctx.moveTo(fromNode.x + NODE_RADIUS, fromNode.y + NODE_RADIUS);
-                    ctx.lineTo(toNode.x + NODE_RADIUS, toNode.y + NODE_RADIUS);
-                    ctx.stroke();
+                    const fromX = fromNode.x + fromNode.width / 2;
+                    const fromY = fromNode.y + fromNode.height / 2;
+                    const toX = toNode.x + toNode.width / 2;
+                    const toY = toNode.y + toNode.height / 2;
+
+                    // Draw line
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('x1', fromX);
+                    line.setAttribute('y1', fromY);
+                    line.setAttribute('x2', toX);
+                    line.setAttribute('y2', toY);
+                    line.setAttribute('stroke', conn.color);
+                    line.setAttribute('stroke-width', '2.5');
+                    line.setAttribute('stroke-linecap', 'round');
+                    canvas.appendChild(line);
 
                     // Draw arrow
-                    const angle = Math.atan2(toNode.y - fromNode.y, toNode.x - fromNode.x);
+                    const angle = Math.atan2(toY - fromY, toX - fromX);
                     const arrowSize = 12;
-                    const endX = toNode.x + NODE_RADIUS;
-                    const endY = toNode.y + NODE_RADIUS;
-                    
-                    ctx.fillStyle = conn.color;
-                    ctx.beginPath();
-                    ctx.moveTo(endX, endY);
-                    ctx.lineTo(endX - arrowSize * Math.cos(angle - Math.PI / 6), endY - arrowSize * Math.sin(angle - Math.PI / 6));
-                    ctx.lineTo(endX - arrowSize * Math.cos(angle + Math.PI / 6), endY - arrowSize * Math.sin(angle + Math.PI / 6));
-                    ctx.fill();
+                    const arrowX = toX - arrowSize * Math.cos(angle);
+                    const arrowY = toY - arrowSize * Math.sin(angle);
+
+                    const arrowPath = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                    const p1x = arrowX - arrowSize * Math.cos(angle - Math.PI / 6);
+                    const p1y = arrowY - arrowSize * Math.sin(angle - Math.PI / 6);
+                    const p2x = arrowX - arrowSize * Math.cos(angle + Math.PI / 6);
+                    const p2y = arrowY - arrowSize * Math.sin(angle + Math.PI / 6);
+
+                    arrowPath.setAttribute('points', `${toX},${toY} ${p1x},${p1y} ${p2x},${p2y}`);
+                    arrowPath.setAttribute('fill', conn.color);
+                    canvas.appendChild(arrowPath);
                 }
             });
 
             // Draw preview line
-            if (previewLine) {
-                ctx.strokeStyle = '#667eea';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([8, 4]);
-                ctx.lineCap = 'round';
-                ctx.beginPath();
-                ctx.moveTo(previewLine.fromX, previewLine.fromY);
-                ctx.lineTo(previewLine.toX, previewLine.toY);
-                ctx.stroke();
-                ctx.setLineDash([]);
+            if (previewLine && previewLine.fromX !== undefined) {
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', previewLine.fromX);
+                line.setAttribute('y1', previewLine.fromY);
+                line.setAttribute('x2', previewLine.toX);
+                line.setAttribute('y2', previewLine.toY);
+                line.setAttribute('stroke', '#667eea');
+                line.setAttribute('stroke-width', '2');
+                line.setAttribute('stroke-dasharray', '5,5');
+                line.setAttribute('stroke-linecap', 'round');
+                canvas.appendChild(line);
             }
 
             // Update node element positions and selection states
             nodes.forEach(node => {
-                const container = document.getElementById(`node-container-${node.id}`);
-                if (container) {
-                    container.style.left = node.x + 'px';
-                    container.style.top = node.y + 'px';
+                const wrapper = document.getElementById(`node-wrapper-${node.id}`);
+                if (wrapper) {
+                    wrapper.style.left = node.x + 'px';
+                    wrapper.style.top = node.y + 'px';
                     
                     if (selectedNodes.includes(node.id)) {
-                        container.classList.add('selected');
+                        wrapper.classList.add('selected');
                     } else {
-                        container.classList.remove('selected');
+                        wrapper.classList.remove('selected');
                     }
                 }
             });
@@ -1169,35 +1246,23 @@
         function downloadMap() {
             const fileName = document.getElementById('fileName').value || 'mindmap';
             
-            // Create canvas image
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = canvas.width;
-            tempCanvas.height = canvas.height;
-            const tempCtx = tempCanvas.getContext('2d');
-            tempCtx.fillStyle = 'white';
-            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-            tempCtx.drawImage(canvas, 0, 0);
-
             // Create data object
             const mapData = {
                 name: fileName,
                 timestamp: new Date().toISOString(),
-                canvas: {
-                    width: canvas.width,
-                    height: canvas.height
-                },
                 nodes: nodes.map(n => ({
                     id: n.id,
                     text: n.text,
                     x: n.x,
                     y: n.y,
+                    width: n.width,
+                    height: n.height,
                     color: n.color,
                     textColor: n.textColor,
                     grouped: n.grouped
                 })),
                 connections: connections,
-                groups: groups,
-                image: tempCanvas.toDataURL('image/png')
+                groups: groups
             };
 
             // Create JSON file
@@ -1233,8 +1298,9 @@
             groups = [];
             selectedNodes = [];
             nodeIdCounter = 0;
+            connectionIdCounter = 0;
             
-            document.querySelectorAll('.node-container').forEach(el => el.remove());
+            document.querySelectorAll('.node-wrapper').forEach(el => el.remove());
             draw();
             updateUI();
             showNotification('New map created!');
@@ -1247,7 +1313,8 @@
                 groups = [];
                 selectedNodes = [];
                 nodeIdCounter = 0;
-                document.querySelectorAll('.node-container').forEach(el => el.remove());
+                connectionIdCounter = 0;
+                document.querySelectorAll('.node-wrapper').forEach(el => el.remove());
                 draw();
                 updateUI();
                 showNotification('Canvas cleared!');
@@ -1301,6 +1368,8 @@
                 text: n.text,
                 x: n.x,
                 y: n.y,
+                width: n.width,
+                height: n.height,
                 color: n.color,
                 textColor: n.textColor,
                 grouped: n.grouped
@@ -1310,7 +1379,7 @@
             selectedNodes = [];
 
             // Clear old node elements
-            document.querySelectorAll('.node-container').forEach(el => el.remove());
+            document.querySelectorAll('.node-wrapper').forEach(el => el.remove());
 
             // Create new node elements
             nodes.forEach(node => {
@@ -1319,6 +1388,7 @@
 
             if (nodes.length > 0) {
                 nodeIdCounter = Math.max(...nodes.map(n => n.id)) + 1;
+                connectionIdCounter = connections.length > 0 ? Math.max(...connections.map(c => c.id)) + 1 : 0;
             }
 
             draw();
@@ -1342,7 +1412,9 @@
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Delete' || e.key === 'Backspace') {
+            if ((e.key === 'Delete' || e.key === 'Backspace') && 
+                e.target.tagName !== 'TEXTAREA' && 
+                e.target.tagName !== 'INPUT') {
                 if (selectedNodes.length > 0) {
                     deleteSelected();
                 }
