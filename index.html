@@ -178,14 +178,6 @@
             overflow: hidden;
         }
 
-        .canvas-wrapper {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            top: 0;
-            left: 0;
-        }
-
         svg {
             position: absolute;
             width: 100%;
@@ -193,6 +185,7 @@
             top: 0;
             left: 0;
             pointer-events: none;
+            z-index: 1;
         }
 
         .nodes-container {
@@ -201,6 +194,7 @@
             height: 100%;
             top: 0;
             left: 0;
+            z-index: 2;
         }
 
         .node-wrapper {
@@ -208,6 +202,7 @@
             cursor: grab;
             user-select: none;
             transition: none;
+            z-index: 10;
         }
 
         .node-wrapper:active {
@@ -215,11 +210,23 @@
         }
 
         .node-wrapper:hover {
-            z-index: 10;
+            z-index: 15;
         }
 
         .node-wrapper.selected {
             z-index: 20;
+        }
+
+        .node-bg {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            z-index: -1;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            transition: all 0.2s ease;
         }
 
         .node {
@@ -247,23 +254,13 @@
             max-height: 150px;
             display: block;
             width: 100%;
+            position: relative;
+            z-index: 1;
         }
 
         .node:focus {
             outline: 2px solid rgba(255, 255, 255, 0.5);
             outline-offset: 2px;
-        }
-
-        .node-bg {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border-radius: 8px;
-            z-index: -1;
-            top: 0;
-            left: 0;
-            pointer-events: none;
-            transition: all 0.2s ease;
         }
 
         .node-wrapper.selected .node-bg {
@@ -652,10 +649,8 @@
         </div>
 
         <div class="canvas-area" id="canvasArea">
-            <div class="canvas-wrapper">
-                <svg id="canvas"></svg>
-                <div class="nodes-container" id="nodesContainer"></div>
-            </div>
+            <svg id="canvas"></svg>
+            <div class="nodes-container" id="nodesContainer"></div>
             <div class="header-controls">
                 <button class="btn-primary btn-sm" id="clearCanvasBtn">Clear All</button>
             </div>
@@ -688,8 +683,8 @@
         let connections = [];
         let groups = [];
         let selectedNodes = [];
-        let draggedNodeIds = [];
-        let dragStart = null;
+        let draggingNodeIds = [];
+        let dragStartData = null;
         let connectingFrom = null;
         let previewLine = null;
         let selectionBox = null;
@@ -753,16 +748,16 @@
             downloadModal.classList.remove('show');
         });
 
-        // Main event handlers
-        canvasArea.addEventListener('mousedown', onMouseDown);
+        // Mouse Events
+        document.addEventListener('mousedown', onMouseDown);
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
         canvasArea.addEventListener('contextmenu', (e) => e.preventDefault());
 
         function onMouseDown(e) {
-            // Don't interfere with textarea or buttons
+            // Skip if clicking on UI elements
             if (e.target.tagName === 'TEXTAREA' || 
-                e.target.tagName === 'INPUT' ||
+                e.target.tagName === 'INPUT' && e.target.type !== 'color' ||
                 e.target.tagName === 'BUTTON' ||
                 e.target.closest('button') ||
                 e.target.closest('#fileList')) {
@@ -773,11 +768,13 @@
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
+            if (x < 0 || y < 0 || x > rect.width || y > rect.height) return;
+
             const clickedNode = getNodeAtPosition(x, y);
 
             if (e.button === 0) { // Left click
                 if (clickedNode) {
-                    // Select node(s)
+                    // Update selection
                     if (!e.ctrlKey && !selectedNodes.includes(clickedNode.id)) {
                         selectedNodes = [clickedNode.id];
                     } else if (e.ctrlKey) {
@@ -788,15 +785,15 @@
                         }
                     }
 
-                    // Prepare to drag
-                    draggedNodeIds = [...selectedNodes];
-                    dragStart = {
-                        x,
-                        y,
-                        nodeOffsets: selectedNodes.map(id => {
+                    // Start dragging
+                    draggingNodeIds = [...selectedNodes];
+                    dragStartData = {
+                        startX: x,
+                        startY: y,
+                        nodes: draggingNodeIds.map(id => {
                             const node = nodes.find(n => n.id === id);
                             return {
-                                id,
+                                id: node.id,
                                 startX: node.x,
                                 startY: node.y
                             };
@@ -839,16 +836,23 @@
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
-            if (draggedNodeIds.length > 0 && dragStart) {
-                // Move nodes
-                dragStart.nodeOffsets.forEach(offset => {
-                    const node = nodes.find(n => n.id === offset.id);
+            if (draggingNodeIds.length > 0 && dragStartData) {
+                // Calculate delta
+                const deltaX = x - dragStartData.startX;
+                const deltaY = y - dragStartData.startY;
+
+                // Move all dragging nodes
+                dragStartData.nodes.forEach(nodeData => {
+                    const node = nodes.find(n => n.id === nodeData.id);
                     if (node) {
-                        const deltaX = x - dragStart.x;
-                        const deltaY = y - dragStart.y;
-                        node.x = offset.startX + deltaX;
-                        node.y = offset.startY + deltaY;
-                        updateNodeElement(node);
+                        node.x = nodeData.startX + deltaX;
+                        node.y = nodeData.startY + deltaY;
+                        
+                        const wrapper = document.getElementById(`node-wrapper-${node.id}`);
+                        if (wrapper) {
+                            wrapper.style.left = node.x + 'px';
+                            wrapper.style.top = node.y + 'px';
+                        }
                     }
                 });
                 draw();
@@ -864,8 +868,9 @@
                 const maxX = Math.max(selectionStart.x, x);
                 const maxY = Math.max(selectionStart.y, y);
 
-                selectionBox.style.left = (rect.left + minX) + 'px';
-                selectionBox.style.top = (rect.top + minY) + 'px';
+                const canvasRect = canvasArea.getBoundingClientRect();
+                selectionBox.style.left = (canvasRect.left + minX) + 'px';
+                selectionBox.style.top = (canvasRect.top + minY) + 'px';
                 selectionBox.style.width = (maxX - minX) + 'px';
                 selectionBox.style.height = (maxY - minY) + 'px';
 
@@ -888,12 +893,10 @@
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
 
-            if (draggedNodeIds.length > 0) {
-                // Finished dragging
-                draggedNodeIds = [];
-                dragStart = null;
+            if (draggingNodeIds.length > 0) {
+                draggingNodeIds = [];
+                dragStartData = null;
             } else if (connectingFrom !== null) {
-                // Finished connecting
                 const toNode = getNodeAtPosition(x, y);
                 if (toNode && toNode.id !== connectingFrom) {
                     createConnection(connectingFrom, toNode.id);
@@ -901,7 +904,6 @@
                 connectingFrom = null;
                 previewLine = null;
             } else if (isDrawingSelection && selectionStart) {
-                // Finished selection
                 const minX = Math.min(selectionStart.x, x);
                 const maxX = Math.max(selectionStart.x, x);
                 const minY = Math.min(selectionStart.y, y);
@@ -1054,14 +1056,6 @@
             nodesContainer.appendChild(wrapper);
         }
 
-        function updateNodeElement(node) {
-            const wrapper = document.getElementById(`node-wrapper-${node.id}`);
-            if (wrapper) {
-                wrapper.style.left = node.x + 'px';
-                wrapper.style.top = node.y + 'px';
-            }
-        }
-
         function updateTempGroupUI() {
             nodes.forEach(node => {
                 const wrapper = document.getElementById(`node-wrapper-${node.id}`);
@@ -1183,7 +1177,6 @@
                     const toX = toNode.x + toNode.width / 2;
                     const toY = toNode.y + toNode.height / 2;
 
-                    // Draw line
                     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
                     line.setAttribute('x1', fromX);
                     line.setAttribute('y1', fromY);
@@ -1194,7 +1187,6 @@
                     line.setAttribute('stroke-linecap', 'round');
                     canvas.appendChild(line);
 
-                    // Draw arrow
                     const angle = Math.atan2(toY - fromY, toX - fromX);
                     const arrowSize = 12;
                     const arrowX = toX - arrowSize * Math.cos(angle);
@@ -1212,7 +1204,6 @@
                 }
             });
 
-            // Draw preview line
             if (previewLine && previewLine.fromX !== undefined) {
                 const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
                 line.setAttribute('x1', previewLine.fromX);
@@ -1226,7 +1217,6 @@
                 canvas.appendChild(line);
             }
 
-            // Update node element selection states
             nodes.forEach(node => {
                 const wrapper = document.getElementById(`node-wrapper-${node.id}`);
                 if (wrapper) {
@@ -1240,12 +1230,10 @@
         }
 
         function updateUI() {
-            // Update stats
             document.getElementById('nodeCount').textContent = nodes.length;
             document.getElementById('groupCount').textContent = groups.length;
             document.getElementById('connectionCount').textContent = connections.length;
 
-            // Update color inputs based on selected nodes
             if (selectedNodes.length === 1) {
                 const node = nodes.find(n => n.id === selectedNodes[0]);
                 if (node) {
@@ -1266,7 +1254,6 @@
         function downloadMap() {
             const fileName = document.getElementById('fileName').value || 'mindmap';
             
-            // Create data object
             const mapData = {
                 name: fileName,
                 timestamp: new Date().toISOString(),
@@ -1290,7 +1277,6 @@
                 groups: groups
             };
 
-            // Create JSON file
             const jsonString = JSON.stringify(mapData, null, 2);
             const blob = new Blob([jsonString], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -1300,7 +1286,6 @@
             link.click();
             URL.revokeObjectURL(url);
 
-            // Save to localStorage
             const savedMaps = JSON.parse(localStorage.getItem('mindmaps') || '[]');
             savedMaps.push({
                 name: fileName,
@@ -1325,7 +1310,7 @@
             tempGroupedNodes = [];
             nodeIdCounter = 0;
             connectionIdCounter = 0;
-            draggedNodeIds = [];
+            draggingNodeIds = [];
             
             document.querySelectorAll('.node-wrapper').forEach(el => el.remove());
             draw();
@@ -1342,7 +1327,7 @@
                 tempGroupedNodes = [];
                 nodeIdCounter = 0;
                 connectionIdCounter = 0;
-                draggedNodeIds = [];
+                draggingNodeIds = [];
                 document.querySelectorAll('.node-wrapper').forEach(el => el.remove());
                 draw();
                 updateUI();
@@ -1407,12 +1392,9 @@
             groups = mapData.groups || [];
             selectedNodes = [];
             tempGroupedNodes = [];
-            draggedNodeIds = [];
+            draggingNodeIds = [];
 
-            // Clear old node elements
             document.querySelectorAll('.node-wrapper').forEach(el => el.remove());
-
-            // Create new node elements
             nodes.forEach(node => {
                 createNodeElement(node);
             });
@@ -1443,7 +1425,6 @@
             }, 2500);
         }
 
-        // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if ((e.key === 'Delete' || e.key === 'Backspace') && 
                 e.target.tagName !== 'TEXTAREA' && 
@@ -1454,7 +1435,6 @@
             }
         });
 
-        // Initialize
         loadFileList();
         updateUI();
         draw();
